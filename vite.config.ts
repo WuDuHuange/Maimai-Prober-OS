@@ -11,6 +11,16 @@ export default defineConfig({
     },
   },
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          echarts: ["echarts"],
+        },
+      },
+    },
+  },
+
   clearScreen: false,
   server: {
     port: 1420,

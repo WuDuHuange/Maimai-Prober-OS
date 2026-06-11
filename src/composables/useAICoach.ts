@@ -4,50 +4,7 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { SYSTEM_PROMPT } from '@/utils/aiPrompt';
-import type { PlayRecord } from '@/types/playRecord';
-import type { SongMeta } from '@/types/song';
-
-function formatRecordForAI(record: PlayRecord, song: SongMeta | undefined): string {
-  const constMap: Record<string, number | null> = {
-    basic: song?.basicConst ?? null,
-    advanced: song?.advancedConst ?? null,
-    expert: song?.expertConst ?? null,
-    master: song?.masterConst ?? null,
-    remaster: song?.remasterConst ?? null,
-  };
-  const constant = constMap[record.difficulty] ?? 'N/A';
-
-  return [
-    `- [${record.playTime}] ${song?.title ?? '未知曲目'} [${record.difficulty.toUpperCase()} ${constant}]`,
-    `  Achievement: ${record.achievements.toFixed(2)}%`,
-    `  DX Score: ${record.dxScore}`,
-    `  Fast: ${record.fastCount} | Late: ${record.lateCount}`,
-    `  Miss: ${record.missCount} | FC: ${record.fcStatus}`,
-  ].join('\n');
-}
-
-function buildCoachContext(
-  recentFails: PlayRecord[],
-  playerRating: number,
-  songMap: Map<number, SongMeta>
-): string {
-  const recordsText = recentFails
-    .map(r => formatRecordForAI(r, songMap.get(r.songId)))
-    .join('\n');
-
-  return [
-    `## Player Current Status`,
-    `- Current Rating: ${playerRating}`,
-    ``,
-    `## Recent Struggle Records (Last 20 plays below 97% on Master/Re:Master)`,
-    recordsText || '  (无近期翻车记录)',
-    ``,
-    `## Available Song Database Stats`,
-    `- Total songs in database: ${songMap.size}`,
-    ``,
-    `Please analyze these records and provide your coaching diagnosis and practice recommendations.`,
-  ].join('\n');
-}
+import { buildCoachContext } from '@/utils/coachContextBuilder';
 
 export function useAICoach() {
   const chatStore = useAIChatStore();
@@ -83,7 +40,7 @@ export function useAICoach() {
       );
 
       if (!response.ok) {
-        if (response.status === 403) throw new Error('Gemini API Key 无效, 请在设置中重新配置');
+        if (response.status === 403) throw new Error('API Key 无效, 请在设置中重新配置');
         if (response.status === 429) throw new Error('AI 请求过于频繁, 请稍后再试');
         throw new Error(`API 请求失败: ${response.status}`);
       }

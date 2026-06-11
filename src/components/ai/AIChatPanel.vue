@@ -14,6 +14,13 @@
             {{ msg.content }}
             <span v-if="msg.role === 'assistant' && i === messages.length - 1 && isStreaming && msg.content === ''" class="cursor-blink">|</span>
           </div>
+          <button
+            v-if="msg.role === 'assistant' && i === messages.length - 1 && !isStreaming && msg.content.length > 50"
+            class="save-plan-btn"
+            @click="saveAsPlan(msg.content)"
+          >
+            保存为练习计划
+          </button>
         </div>
       </div>
     </div>
@@ -50,6 +57,7 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue';
 import { useAIChatStore } from '@/stores/useAIChatStore';
+import { db } from '@/services/db';
 
 const emit = defineEmits<{
   coach: [];
@@ -67,6 +75,29 @@ function send() {
   if (!text || isStreaming.value) return;
   inputText.value = '';
   emit('send', text);
+}
+
+async function saveAsPlan(content: string) {
+  const existing = await db.appSettings.get('practice_plans');
+  let plans: any[] = [];
+  if (existing?.value) {
+    try { plans = JSON.parse(existing.value); } catch { plans = []; }
+  }
+
+  const newPlan = {
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    summary: content.slice(0, 500),
+    songs: [],
+  };
+
+  plans.unshift(newPlan);
+  await db.appSettings.put({
+    key: 'practice_plans',
+    value: JSON.stringify(plans),
+    updatedAt: new Date().toISOString(),
+  });
+  alert('练习计划已保存');
 }
 
 // Auto-scroll to bottom on new messages
@@ -167,6 +198,23 @@ function storeToRefs<T extends Record<string, any>>(store: T) {
 
 @keyframes blink {
   50% { opacity: 0; }
+}
+
+.save-plan-btn {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid var(--color-primary);
+  background-color: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.save-plan-btn:hover {
+  background-color: rgba(99, 102, 241, 0.1);
 }
 
 .input-area {
