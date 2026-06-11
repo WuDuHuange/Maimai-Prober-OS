@@ -27,10 +27,7 @@
       </main>
 
       <RightSidebar>
-        <div class="flex flex-col items-center justify-center h-full text-text-muted">
-          <p class="text-xs">AI 教练面板</p>
-          <p class="text-xs mt-1">在此与 AI 对话</p>
-        </div>
+        <AIChatPanel @coach="handleAICoach" @send="handleAISend" />
       </RightSidebar>
     </div>
 
@@ -45,7 +42,9 @@ import RightSidebar from '@/components/layout/RightSidebar.vue';
 import AppStatusBar from '@/components/layout/AppStatusBar.vue';
 import SyncButton from '@/components/sync/SyncButton.vue';
 import SyncProgress from '@/components/sync/SyncProgress.vue';
+import AIChatPanel from '@/components/ai/AIChatPanel.vue';
 import { useProberSync } from '@/composables/useProberSync';
+import { useAICoach } from '@/composables/useAICoach';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { onMounted } from 'vue';
@@ -54,6 +53,7 @@ import { decrypt } from '@/services/cryptoService';
 const syncStore = useSyncStore();
 const settingsStore = useSettingsStore();
 const { startSync } = useProberSync();
+const { sendMessage, coachAnalysis } = useAICoach();
 
 onMounted(() => {
   settingsStore.checkSettings();
@@ -67,6 +67,14 @@ function handleSync() {
   }
   const token = decrypt(encryptedToken);
   startSync(token);
+}
+
+function handleAICoach() {
+  coachAnalysis();
+}
+
+function handleAISend(text: string) {
+  sendMessage(text);
 }
 </script>
 

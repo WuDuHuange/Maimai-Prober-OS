@@ -1,11 +1,6 @@
 <template>
   <aside class="right-sidebar">
-    <div class="flex items-center justify-between px-3 py-2 border-b border-bg-hover">
-      <span class="text-sm font-semibold text-text-primary">AI 教练</span>
-    </div>
-    <div class="flex-1 overflow-y-auto">
-      <slot />
-    </div>
+    <slot />
   </aside>
 </template>
 
