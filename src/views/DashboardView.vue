@@ -171,9 +171,12 @@ onMounted(async () => {
 .player-card {
   padding: 24px;
   box-shadow: var(--shadow-card);
-  transition: box-shadow var(--transition-smooth);
+  transition: box-shadow var(--transition-smooth), transform var(--transition-smooth);
 }
-.player-card:hover { box-shadow: var(--shadow-card-hover); }
+.player-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
 
 .avatar-lg {
   width: 60px;
@@ -209,7 +212,16 @@ onMounted(async () => {
 
 /* ===== Stats Bar ===== */
 .stats-bar { display: flex; padding: 20px 28px; gap: 8px; }
-.stat-item { flex: 1; text-align: center; }
+.stat-item {
+  flex: 1; text-align: center;
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.stat-item:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
 .st-label { font-size: 11px; color: var(--text-muted); display: block; letter-spacing: var(--letter-spacing-wide); text-transform: uppercase; }
 .st-num { font-size: 24px; font-weight: 700; color: var(--text-primary); display: block; margin: 6px 0 2px; letter-spacing: var(--letter-spacing-tight); }
 .st-change { font-size: 11px; font-weight: 600; }
@@ -224,11 +236,14 @@ onMounted(async () => {
   padding: 16px 8px;
   background: var(--bg-body);
   border-radius: var(--radius-md);
-  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease;
+  cursor: default;
 }
 .weekly-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-sm);
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 12px 32px rgba(44, 76, 160, 0.08);
+  background: white;
 }
 
 .ws-icon {
