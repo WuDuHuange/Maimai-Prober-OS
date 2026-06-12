@@ -47,7 +47,7 @@ const navItems = [
 ];
 
 const syncLabel = computed(() => {
-  const m: Record<string, string> = { idle: '已同步', syncing: '同步中...', completed: '同步完成', error: '同步失败' };
+  const m: Record<string, string> = { idle: '就绪', syncing: '同步中...', completed: '同步完成', error: '同步失败' };
   return m[props.syncStatus] || '就绪';
 });
 
