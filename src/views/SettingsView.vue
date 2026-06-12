@@ -65,11 +65,10 @@ const aiServices = reactive([
 const configuredAIs = computed(() => aiServices.filter(s => !!localStorage.getItem(s.skey)).map(s => s.label));
 
 onMounted(() => {
-  const jwt = localStorage.getItem('jwt_token');
-  if (jwt) {
-    const u = localStorage.getItem('jwt_username');
-    username.value = u || '';
-    jwtStatus.value = { text: `已登录: ${u || '---'}`, color: 'text-success' };
+  const jwtUser = localStorage.getItem('jwt_user');
+  if (jwtUser) {
+    username.value = jwtUser;
+    jwtStatus.value = { text: `已登录: ${jwtUser}`, color: 'text-success' };
   }
   const it = localStorage.getItem('import_token_enc');
   if (it) {
@@ -88,22 +87,24 @@ async function doLogin() {
   }
   jwtStatus.value = { text: '登录中...', color: 'text-text-secondary' };
   try {
+    // Browser auto-manages cookies with credentials: 'include'
     const resp = await fetch(`${API_BASE}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username.value.trim(), password: password.value.trim() }),
+      credentials: 'include',
     });
     if (!resp.ok) {
-      jwtStatus.value = { text: '登录凭据错误', color: 'text-danger' }; return;
+      const data = await resp.json().catch(() => ({}));
+      jwtStatus.value = { text: data.message || '登录凭据错误', color: 'text-danger' }; return;
     }
-    const jwtCookie = resp.headers.get('set-cookie') || '';
-    const match = jwtCookie.match(/jwt_token=([^;]+)/);
-    if (match) {
-      localStorage.setItem('jwt_token', match[1]);
-      localStorage.setItem('jwt_username', username.value.trim());
-      jwtStatus.value = { text: `登录成功: ${username.value.trim()}`, color: 'text-success' };
+    // JWT cookie is auto-stored by the browser -- check if it works
+    const verify = await fetch(`${API_BASE}/player/agreement`, { credentials: 'include' });
+    if (verify.ok) {
+      localStorage.setItem('jwt_user', username.value.trim());
+      jwtStatus.value = { text: `已登录: ${username.value.trim()}`, color: 'text-success' };
     } else {
-      jwtStatus.value = { text: '登录成功但未获取到 JWT', color: 'text-warning' };
+      jwtStatus.value = { text: '登录成功但 Cookie 未生效 (需同源或代理)', color: 'text-warning' };
     }
   } catch (err: any) {
     jwtStatus.value = { text: `网络错误: ${err.message}`, color: 'text-danger' };
@@ -111,8 +112,8 @@ async function doLogin() {
 }
 
 function logout() {
-  localStorage.removeItem('jwt_token');
-  localStorage.removeItem('jwt_username');
+  localStorage.removeItem('jwt_user');
+  fetch(`${API_BASE}/login`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
   jwtStatus.value = { text: '已登出', color: 'text-muted' };
 }
 
