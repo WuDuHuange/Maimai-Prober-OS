@@ -41,12 +41,7 @@
         <h2 class="card-title mb-0">谱面笔记</h2>
         <button class="save-btn" @click="handleSaveNote">保存笔记</button>
       </div>
-      <textarea
-        v-model="noteContent"
-        class="note-editor"
-        placeholder="在此记录机况、手法心得或读谱笔记..."
-        rows="4"
-      />
+      <MarkdownEditor v-model="noteContent" placeholder="在此记录机况、手法心得或读谱笔记..." />
     </section>
   </div>
 </template>
@@ -59,6 +54,7 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { db } from '@/services/db';
 import SongHistoryChart from '@/components/charts/SongHistoryChart.vue';
 import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
+import MarkdownEditor from '@/components/notes/MarkdownEditor.vue';
 import { DIFFICULTY_LIST, type DifficultyType } from '@/types/song';
 
 const route = useRoute();
