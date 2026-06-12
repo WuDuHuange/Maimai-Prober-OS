@@ -12,7 +12,7 @@ export function mapSongItemToMeta(item: SongItem): SongMeta {
   const getLevel = (idx: number) => item.level[idx] ?? null;
 
   return {
-    songId: item.id,
+    songId: Number(item.id),
     title: item.title,
     artist: item.basic_info?.artist ?? '',
     genre: item.basic_info?.genre ?? '',
@@ -36,7 +36,7 @@ export function mapSongItemToMeta(item: SongItem): SongMeta {
 export function mapOfficialRecord(item: OfficialRecordItem): PlayRecord {
   const now = new Date().toISOString();
   return {
-    songId: item.song_id,
+    songId: Number(item.song_id),
     difficulty: LEVEL_INDEX_MAP[item.level_index] ?? 'master',
     achievements: item.achievements,
     dxScore: item.dxScore,
