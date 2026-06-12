@@ -7,22 +7,17 @@
         <div class="flex-1">
           <div class="flex items-center gap-2">
             <span class="text-lg font-bold">{{ playerStore.playerName }}</span>
-            <span class="text-xs text-text-muted">ID: {{ playerStore.currentRating }}</span>
           </div>
           <div class="flex items-end gap-6 mt-3">
             <div>
               <span class="text-xs text-text-muted">Rating</span>
               <div class="rating-big">{{ playerStore.currentRating.toFixed(2) }}</div>
             </div>
-            <div class="flex items-center gap-1 mb-1">
-              <span class="rating-up">+38.47</span>
-            </div>
           </div>
         </div>
         <div class="text-right">
-          <span class="text-xs text-text-muted">全球排名</span>
-          <div class="rank-text">#1,248</div>
-          <span class="text-xs text-text-muted">Top 2.351%</span>
+          <span class="text-xs text-text-muted">同步记录数</span>
+          <div class="rank-text">{{ playLogStore.totalCount.toLocaleString() }}</div>
         </div>
       </div>
     </div>

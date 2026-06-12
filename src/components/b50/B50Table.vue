@@ -17,12 +17,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr
-          v-for="(item, idx) in list"
-          :key="item.id ?? idx"
-          class="song-row"
-          @click="goToSong(item.songId)"
-        >
+        <tr v-for="(item, idx) in list" :key="item.id ?? idx" class="song-row">
           <td class="py-2 px-2 text-xs text-text-muted">{{ idx + 1 }}</td>
           <td class="py-2 px-2 text-sm text-text-primary truncate max-w-[160px]">{{ item.title ?? '未知' }}</td>
           <td class="py-2 px-2 text-xs">
@@ -45,25 +40,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted } from 'vue';
 import { useB50Store } from '@/stores/useB50Store';
 import type { DifficultyType } from '@/types/song';
 
-const router = useRouter();
 const store = useB50Store();
-const list = ref(store.b50List);
+const list = computed(() => store.b50List);
 const loading = ref(true);
 
 onMounted(async () => {
   await store.loadFromDB();
-  list.value = store.b50List;
   loading.value = false;
 });
-
-function goToSong(songId: number) {
-  router.push(`/song/${songId}`);
-}
 
 function diffLabel(d: DifficultyType): string {
   const map: Record<string, string> = {

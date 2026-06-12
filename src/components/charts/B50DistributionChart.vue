@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useECharts } from '@/composables/useECharts';
 import * as echarts from 'echarts';
 import { useB50Store } from '@/stores/useB50Store';
@@ -15,7 +15,7 @@ const chartEl = ref<HTMLElement | null>(null);
 const noData = ref(false);
 const { setOption } = useECharts(chartEl);
 
-onMounted(async () => {
+async function loadChart() {
   const b50Store = useB50Store();
   await b50Store.loadFromDB();
   const list = b50Store.b50List;
@@ -86,7 +86,12 @@ onMounted(async () => {
   };
 
   setOption(option);
-});
+}
+
+// Reload chart after sync
+const b50Store = useB50Store();
+watch(() => b50Store.b50List.length, () => { loadChart(); });
+onMounted(loadChart);
 </script>
 
 <style scoped>
