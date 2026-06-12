@@ -106,11 +106,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
+import { useB50Store } from '@/stores/useB50Store';
 import RatingTrendChart from '@/components/charts/RatingTrendChart.vue';
 import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
+const b50Store = useB50Store();
 const timeFilter = ref(30);
 const allRecords = ref<any[]>([]);
 
@@ -123,20 +125,34 @@ const weekRange = computed(() => {
   return `${mon.getMonth()+1}/${mon.getDate()} - ${sun.getMonth()+1}/${sun.getDate()}`;
 });
 
-const statsItems = ref([
-  { label: '总游玩次数', value: '1,248', change: '+12.5%' },
-  { label: '理论值(R.T.)', value: '15,850.42', change: '+3.2%' },
-  { label: '平均达成率', value: '97.84%', change: '+0.8%' },
-  { label: 'SSS+ 次数', value: '47', change: '+6' },
-  { label: 'Full Combo', value: '312', change: '+18' },
-]);
+const statsItems = computed(() => {
+  const records = playLogStore.records;
+  const total = records.length || 0;
+  const avg = total > 0 ? records.reduce((s, r) => s + r.achievements, 0) / total : 0;
+  const sssPlus = records.filter(r => r.achievements >= 100.5).length;
+  const fcCount = records.filter(r => r.fcStatus === 'fc' || r.fcStatus === 'ap').length;
+  const rt = b50Store.b50List.reduce((s, b) => s + (b.ratingContribution || 0), 0);
 
-const weeklyStats = ref({
-  plays: 48,
-  newSongs: 12,
-  bestScore: 100.83,
-  ratingChange: 156,
-  avgAch: 98.2,
+  return [
+    { label: '总游玩次数', value: total.toLocaleString(), change: '' },
+    { label: '理论值(R.T.)', value: rt.toFixed(2), change: '' },
+    { label: '平均达成率', value: avg.toFixed(2) + '%', change: '' },
+    { label: 'SSS+ 次数', value: String(sssPlus), change: '' },
+    { label: 'Full Combo', value: String(fcCount), change: '' },
+  ];
+});
+
+const weeklyStats = computed(() => {
+  const records = playLogStore.records;
+  const avg = records.length > 0 ? records.reduce((s, r) => s + r.achievements, 0) / records.length : 0;
+  const best = records.length > 0 ? Math.max(...records.map(r => r.achievements)) : 0;
+  return {
+    plays: records.length,
+    newSongs: new Set(records.map(r => r.songId)).size,
+    bestScore: best,
+    ratingChange: playerStore.currentRating,
+    avgAch: avg,
+  };
 });
 
 const fabBtns = ref([
@@ -149,6 +165,7 @@ const fabBtns = ref([
 
 onMounted(async () => {
   await playLogStore.loadFromDB();
+  await b50Store.loadFromDB();
   allRecords.value = playLogStore.records;
 });
 </script>

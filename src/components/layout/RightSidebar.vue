@@ -1,56 +1,33 @@
 <template>
   <aside class="right-panel">
-    <!-- AI Header -->
     <div class="ai-header">
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold">AI 协同复盘官</span>
-        <span class="beta-tag">BETA</span>
-      </div>
-      <button class="close-btn">X</button>
+      <div class="flex items-center gap-2"><span class="text-sm font-semibold">AI 协同复盘官</span><span class="beta-tag">BETA</span></div>
     </div>
 
-    <!-- AI Greeting -->
     <div class="ai-greeting">
       <span class="star-icon">*</span>
-      嗨, 水鱼! 基于你的数据, 我为你生成了本周的练歌计划.
+      同步数据后, AI 教练将分析你的战绩并生成练歌计划.
     </div>
 
-    <!-- Practice Plan List -->
     <div class="practice-list">
-      <div v-for="(song, i) in practiceSongs" :key="i" class="practice-item">
-        <div class="rank-indicator" :style="{ background: song.gradient }" />
-        <span class="rank-num">{{ String(i+1).padStart(2,'0') }}</span>
-        <div class="song-thumb" :style="{ background: song.gradient }" />
-        <div class="practice-info">
-          <span class="p-song-name">{{ song.title }}</span>
-          <span class="diff-tag-sm" :class="'d-'+song.difficulty">{{ song.difficulty.toUpperCase() }} {{ song.constant }}</span>
-          <span class="purpose-tag">{{ song.purpose }}</span>
-        </div>
-        <div class="practice-score">
-          <span class="score-gain">+{{ song.gain }}</span>
-          <span class="score-target">{{ song.target }}</span>
-        </div>
+      <div v-if="!hasData" class="text-xs text-text-muted text-center py-6">
+        请先同步数据以获取 AI 练歌推荐
       </div>
     </div>
 
-    <!-- AI Coach Message -->
     <div class="ai-message">
-      高难曲特定底力很棒! 不过偏差分布显示你"早打"偏多, 建议这周重点练习精度.
+      连接 AI 服务后可获得个性化的底力缺陷诊断和针对性练习曲推荐.
     </div>
 
-    <!-- Robot Mascot -->
     <div class="robot-float">R</div>
   </aside>
 </template>
 
 <script setup lang="ts">
-const practiceSongs = [
-  { title: 'Oshama Scramble!', difficulty: 'master', constant: 14.7, purpose: '提升稳定度', gain: '+42.18', target: '15,080', gradient: 'linear-gradient(135deg,#EF4444,#F97316)' },
-  { title: 'Axeria', difficulty: 'master', constant: 14.5, purpose: '肌肉耐力', gain: '+38.62', target: '15,020', gradient: 'linear-gradient(135deg,#F97316,#F59E0B)' },
-  { title: 'Glorious Crown', difficulty: 'master', constant: 14.3, purpose: '精度训练', gain: '+35.74', target: '14,960', gradient: 'linear-gradient(135deg,#8B5CF6,#A78BFA)' },
-  { title: 'World\'s End Loneliness', difficulty: 'expert', constant: 13.8, purpose: '体力分配', gain: '+31.25', target: '14,850', gradient: 'linear-gradient(135deg,#10B981,#34D399)' },
-  { title: 'Titania', difficulty: 'master', constant: 14.1, purpose: '交互练习', gain: '+29.90', target: '14,780', gradient: 'linear-gradient(135deg,#3B82F6,#60A5FA)' },
-];
+import { computed } from 'vue';
+import { usePlayLogStore } from '@/stores/usePlayLogStore';
+
+const hasData = computed(() => usePlayLogStore().totalCount > 0);
 </script>
 
 <style scoped>
