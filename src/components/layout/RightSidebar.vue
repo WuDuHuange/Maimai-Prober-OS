@@ -34,8 +34,10 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 .right-panel {
   width: var(--ai-panel-width);
   height: 100%;
-  background: var(--bg-body);
-  border-left: 1px solid var(--border-color);
+  background: transparent;
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   overflow-y: auto;
   flex-shrink: 0;
   display: flex;

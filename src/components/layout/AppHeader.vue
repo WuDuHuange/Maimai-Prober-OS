@@ -59,8 +59,11 @@ const syncClass = computed(() => {
 <style scoped>
 .top-header {
   height: var(--header-height);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 20px rgba(44, 76, 160, 0.02);
   display: flex;
   align-items: center;
   padding: 0 20px;
@@ -76,31 +79,35 @@ const syncClass = computed(() => {
 }
 
 .logo-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 4px 12px rgba(74, 114, 255, 0.3);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .logo-text {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 800;
   color: var(--text-primary);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .pro-tag {
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 800;
   padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-primary);
-  color: var(--color-primary);
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  border: 1px solid rgba(74, 114, 255, 0.3);
   letter-spacing: 1px;
 }
 
@@ -115,7 +122,7 @@ const syncClass = computed(() => {
   padding: 8px 18px;
   border-radius: 20px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   text-decoration: none;
@@ -125,12 +132,12 @@ const syncClass = computed(() => {
   letter-spacing: var(--letter-spacing-normal);
 }
 
-.nav-link:hover { color: var(--text-primary); background: var(--bg-hover); }
+.nav-link:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.5); }
 
 .nav-link.active {
   color: var(--color-primary);
-  font-weight: 600;
-  background: #FFFFFF;
+  font-weight: 700;
+  background: white;
   box-shadow: var(--shadow-sm);
 }
 
@@ -143,12 +150,14 @@ const syncClass = computed(() => {
 .sync-badge {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 5px 12px;
   border-radius: 20px;
-  background: #ECFDF5;
+  background: rgba(16, 185, 129, 0.1);
   color: var(--color-success);
   font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(16, 185, 129, 0.15);
 }
 
 .sync-badge .dot {
@@ -156,12 +165,13 @@ const syncClass = computed(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--color-success);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
 }
 
-.sync-badge.error { background: #FEF2F2; color: var(--color-danger); }
-.sync-badge.error .dot { background: var(--color-danger); }
-.sync-badge.syncing { background: #EFF6FF; color: var(--color-primary); }
-.sync-badge.syncing .dot { background: var(--color-primary); animation: breathe 1.5s infinite; }
+.sync-badge.error { background: rgba(239, 68, 68, 0.1); color: var(--color-danger); border-color: rgba(239, 68, 68, 0.15); }
+.sync-badge.error .dot { background: var(--color-danger); box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); }
+.sync-badge.syncing { background: rgba(74, 114, 255, 0.1); color: var(--color-primary); border-color: rgba(74, 114, 255, 0.15); }
+.sync-badge.syncing .dot { background: var(--color-primary); box-shadow: 0 0 6px rgba(74, 114, 255, 0.4); animation: breathe 1.5s infinite; }
 
 @keyframes breathe {
   0%, 100% { opacity: 1; }

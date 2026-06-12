@@ -142,7 +142,7 @@ function goSong(_id: number) { sq.value = ''; results.value = []; }
 .left-panel {
   width: 260px;
   height: 100%;
-  background: var(--bg-body);
+  background: transparent;
   overflow-y: auto;
   flex-shrink: 0;
   display: flex;

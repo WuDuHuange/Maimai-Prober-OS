@@ -3,12 +3,13 @@
   --color-primary: #4A72FF;
   --color-primary-dark: #3560E8;
   --color-primary-light: #E8ECFF;
-  --color-accent: #8B6CF6;
+  /* 更灵动通透的紫 */
+  --color-accent: #9D7BFF;
   --color-success: #10B981;
   --color-danger: #EF4444;
   --color-warning: #F59E0B;
 
-  /* ===== Difficulty Colors ===== */
+  /* ===== Difficulty Colors (Slightly adjusted for better glow) ===== */
   --diff-basic: #10B981;
   --diff-advanced: #F59E0B;
   --diff-expert: #EF4444;
@@ -16,38 +17,47 @@
   --diff-remaster: #EC4899;
 
   /* ===== Background Hierarchy ===== */
-  --bg-body: #EEF1F6;          /* 页面底色 — 微蓝紫调浅灰，与白卡片形成柔和对比 */
-  --bg-primary: #EEF1F6;       /* 别名 */
-  --bg-secondary: #FFFFFF;     /* 纯白卡片 */
-  --bg-card: #FFFFFF;
-  --bg-hover: #F5F6FA;         /* 悬停态 — 微妙的暖灰 */
-  --bg-tag: #EEF2FF;           /* 标签底色 */
+  /* 淡偏天空蓝/紫的明亮底色 */
+  --bg-body: #EEF2F9; 
+  --bg-primary: #EEF2F9;
+  /* 卡片玻璃质感 - 70%至85%不透明度，通过 backdrop-filter 实现 */
+  --bg-card: rgba(255, 255, 255, 0.75);
+  --bg-secondary: rgba(255, 255, 255, 0.75);
+  
+  /* 弱对比的半透明遮罩 */
+  --bg-hover: rgba(255, 255, 255, 0.95);         
+  --bg-tag: rgba(74, 114, 255, 0.08);           
 
   /* ===== Text Hierarchy ===== */
-  --text-primary: #1E293B;
-  --text-secondary: #475569;
-  --text-muted: #94A3B8;
+  /* 字色按层级深度递减 */
+  --text-primary: #111827;      /* 最深：大数字、核心标题 */
+  --text-secondary: #4B5563;    /* 中等：普通文本、描述 */
+  --text-muted: #8B9BB4;        /* 最浅，带有环境冷色调：辅助文本、单位 */
 
-  /* ===== Shadow Scale — 软阴影系统 ===== */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.05), 0 1px 4px rgba(0, 0, 0, 0.03);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-xl: 0 16px 60px rgba(0, 0, 0, 0.07), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
-  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03);
-  --shadow-nav: 0 2px 12px rgba(0, 0, 0, 0.03);
-  --shadow-fab: 0 4px 24px rgba(74, 114, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  /* ===== Shadow Scale — 光影质感系统 (Tinted glass shadows) ===== */
+  /* 放弃纯黑纯灰，全部吸收蓝色/紫色环境光。大模糊半径，极低透明度 */
+  --shadow-color: 44, 76, 160; /* #2C4CA0 */
+  --shadow-xs: 0 2px 4px rgba(var(--shadow-color), 0.02);
+  --shadow-sm: 0 4px 12px rgba(var(--shadow-color), 0.03), 0 1px 2px rgba(var(--shadow-color), 0.02);
+  --shadow-md: 0 8px 30px rgba(var(--shadow-color), 0.04), 0 2px 4px rgba(var(--shadow-color), 0.02);
+  --shadow-lg: 0 16px 50px rgba(var(--shadow-color), 0.05), 0 4px 12px rgba(var(--shadow-color), 0.03);
+  --shadow-xl: 0 24px 80px rgba(var(--shadow-color), 0.06), 0 8px 24px rgba(var(--shadow-color), 0.04);
+  
+  --shadow-card: 0 8px 32px rgba(var(--shadow-color), 0.04), 0 1px 2px rgba(255,255,255, 0.5) inset;
+  --shadow-card-hover: 0 16px 48px rgba(var(--shadow-color), 0.06), 0 2px 4px rgba(255,255,255, 0.8) inset;
+  --shadow-nav: 0 4px 20px rgba(var(--shadow-color), 0.03);
+  --shadow-fab: 0 8px 32px rgba(74, 114, 255, 0.15), 0 2px 8px rgba(74, 114, 255, 0.08);
 
   /* ===== Border ===== */
-  --border-color: #E8ECF2;
-  --border-color-light: #F0F2F6;
+  /* 配合玻璃拟物，极细且通透的边框 */
+  --border-color: rgba(255, 255, 255, 0.5);
+  --border-color-light: rgba(255, 255, 255, 0.8);
 
   /* ===== Border Radius ===== */
   --radius-sm: 8px;
   --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
   --radius-full: 9999px;
 
   /* ===== Layout ===== */
@@ -63,6 +73,6 @@
 
   /* ===== Transition ===== */
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-spring: 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-smooth: 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
