@@ -1,48 +1,50 @@
 <template>
   <div class="song-detail p-4 flex flex-col gap-4 h-full overflow-y-auto">
-    <!-- 标题和难度选择 -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-lg font-bold text-text-primary">{{ song?.title ?? '未知曲目' }}</h1>
-        <p v-if="song" class="text-xs text-text-muted mt-0.5">{{ song.artist }}</p>
+    <template v-if="!isNaN(songId) && songId > 0">
+      <!-- 标题和难度选择 -->
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-lg font-bold">{{ song?.title ?? '未知曲目' }}</h1>
+          <p v-if="song" class="text-xs text-text-muted mt-0.5">{{ song.artist }}</p>
+        </div>
+        <div class="flex gap-1">
+          <button
+            v-for="diff in availableDiffs"
+            :key="diff"
+            class="diff-btn"
+            :class="{ active: selectedDiff === diff }"
+            @click="selectDifficulty(diff)"
+          >
+            {{ diffLabel(diff) }}
+          </button>
+        </div>
       </div>
-      <div class="flex gap-1">
-        <button
-          v-for="diff in availableDiffs"
-          :key="diff"
-          class="diff-btn"
-          :class="{ active: selectedDiff === diff }"
-          @click="selectDifficulty(diff)"
-        >
-          {{ diffLabel(diff) }}
-        </button>
-      </div>
+
+      <section class="chart-card">
+        <h2 class="card-title">受苦进化史</h2>
+        <div class="h-[220px]">
+          <SongHistoryChart :records="historyRecords" />
+        </div>
+      </section>
+
+      <section class="chart-card">
+        <h2 class="card-title">判定偏差趋势</h2>
+        <div class="h-[200px]">
+          <JudgeScatterChart :records="historyRecords" />
+        </div>
+      </section>
+
+      <section class="chart-card">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="card-title mb-0">谱面笔记</h2>
+          <button class="save-btn" @click="handleSaveNote">保存笔记</button>
+        </div>
+        <MarkdownEditor v-model="noteContent" placeholder="在此记录机况、手法心得或读谱笔记..." />
+      </section>
+    </template>
+    <div v-else class="flex items-center justify-center h-full text-text-muted text-sm">
+      请从歌曲库中选择一首曲目查看详情
     </div>
-
-    <!-- 受苦进化史 -->
-    <section class="chart-card">
-      <h2 class="card-title">受苦进化史</h2>
-      <div class="h-[220px]">
-        <SongHistoryChart :records="historyRecords" />
-      </div>
-    </section>
-
-    <!-- 判定散点图 -->
-    <section class="chart-card">
-      <h2 class="card-title">判定偏差趋势</h2>
-      <div class="h-[200px]">
-        <JudgeScatterChart :records="historyRecords" />
-      </div>
-    </section>
-
-    <!-- 笔记 -->
-    <section class="chart-card">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="card-title mb-0">谱面笔记</h2>
-        <button class="save-btn" @click="handleSaveNote">保存笔记</button>
-      </div>
-      <MarkdownEditor v-model="noteContent" placeholder="在此记录机况、手法心得或读谱笔记..." />
-    </section>
   </div>
 </template>
 
@@ -57,11 +59,14 @@ import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
 import MarkdownEditor from '@/components/notes/MarkdownEditor.vue';
 import { DIFFICULTY_LIST, type DifficultyType } from '@/types/song';
 
+const props = defineProps<{ songId?: number | null }>();
+defineEmits<{ back: [] }>();
+
 const route = useRoute();
 const songStore = useSongStore();
 const playLogStore = usePlayLogStore();
 
-const songId = computed(() => Number(route.params.songId));
+const songId = computed(() => props.songId ?? Number(route.params.songId));
 const song = computed(() => songStore.getSong(songId.value));
 const selectedDiff = ref<DifficultyType>('master');
 const historyRecords = ref<any[]>([]);
@@ -80,10 +85,14 @@ const availableDiffs = computed(() => {
 });
 
 async function selectDifficulty(d: DifficultyType) {
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
   selectedDiff.value = d;
-  historyRecords.value = await playLogStore.getSongHistory(songId.value, d);
-  const note = await db.songNotes.get([songId.value, d]);
-  noteContent.value = note?.content ?? '';
+  historyRecords.value = await playLogStore.getSongHistory(sid, d);
+  try {
+    const note = await db.songNotes.get([sid, d]);
+    noteContent.value = note?.content ?? '';
+  } catch { noteContent.value = ''; }
 }
 
 function diffLabel(d: DifficultyType): string {
@@ -92,12 +101,16 @@ function diffLabel(d: DifficultyType): string {
 }
 
 async function handleSaveNote() {
-  await db.songNotes.put({
-    songId: songId.value,
-    difficulty: selectedDiff.value,
-    content: noteContent.value,
-    updatedAt: new Date().toISOString(),
-  });
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
+  try {
+    await db.songNotes.put({
+      songId: sid,
+      difficulty: selectedDiff.value,
+      content: noteContent.value,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) { /* ignore */ }
 }
 
 onMounted(async () => {

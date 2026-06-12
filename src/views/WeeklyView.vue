@@ -82,7 +82,7 @@ async function loadWeek() {
   const { start, end } = getWeekRange(weekOffset.value);
   const allRecords = await db.playLogs
     .where('playTime')
-    .between(start.toISOString(), end.toISOString(), true, true)
+    .between(start.toISOString(), end.toISOString())
     .toArray();
 
   if (allRecords.length === 0) {

@@ -16,7 +16,9 @@ export const usePlayLogStore = defineStore('playLog', () => {
 
   async function getSongHistory(songId: number, difficulty: string): Promise<PlayRecord[]> {
     return db.playLogs
-      .where({ songId, difficulty })
+      .where('songId')
+      .equals(songId)
+      .filter(r => r.difficulty === difficulty)
       .sortBy('playTime');
   }
 
