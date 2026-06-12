@@ -1,93 +1,80 @@
 <template>
   <div class="app-container flex flex-col">
-    <AppHeader>
-      <template #actions>
-        <div class="flex items-center gap-2">
-          <SyncButton :status="syncStore.status" @sync="handleSync" />
-          <router-link to="/settings" class="text-xs text-text-muted hover:text-text-primary transition-colors">
-            设置
-          </router-link>
-        </div>
-      </template>
-    </AppHeader>
-
-    <div v-if="syncStore.status === 'syncing'" class="px-4 py-2">
-      <SyncProgress :progress="syncStore.progress" :visible="true" />
-    </div>
+    <AppHeader
+      v-model="activeTab"
+      :syncStatus="syncStore.status"
+      :syncProgress="syncStore.progress"
+      @sync="handleSync"
+    />
 
     <div class="flex flex-1 overflow-hidden">
-      <LeftSidebar>
-        <template #search>
-          <p class="text-xs text-text-muted px-1">TODO: 搜索框</p>
-        </template>
-      </LeftSidebar>
+      <LeftSidebar @tab="activeTab = $event" />
 
       <main class="main-content">
-        <router-view />
+        <!-- Best 50 Tab -->
+        <div v-if="activeTab === 'b50'" class="tab-panel p-4">
+          <div class="h-[240px] mb-4">
+            <RatingTrendChart />
+          </div>
+          <B50Table />
+        </div>
+
+        <!-- Song Analysis Tab -->
+        <div v-else-if="activeTab === 'song'" class="tab-panel p-4">
+          <SongDetailView :songId="selectedSongId" @back="activeTab = 'b50'" />
+        </div>
+
+        <!-- Weekly Tab -->
+        <div v-else-if="activeTab === 'weekly'" class="tab-panel p-4 h-full">
+          <WeeklyView />
+        </div>
+
+        <!-- AI Coach Tab -->
+        <div v-else-if="activeTab === 'ai'" class="tab-panel h-full">
+          <AIChatPanel @coach="handleAICoach" @send="handleAISend" />
+        </div>
       </main>
-
-      <RightSidebar>
-        <AIChatPanel @coach="handleAICoach" @send="handleAISend" />
-      </RightSidebar>
     </div>
-
-    <AppStatusBar />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import LeftSidebar from '@/components/layout/LeftSidebar.vue';
-import RightSidebar from '@/components/layout/RightSidebar.vue';
-import AppStatusBar from '@/components/layout/AppStatusBar.vue';
-import SyncButton from '@/components/sync/SyncButton.vue';
-import SyncProgress from '@/components/sync/SyncProgress.vue';
+import RatingTrendChart from '@/components/charts/RatingTrendChart.vue';
+import B50Table from '@/components/b50/B50Table.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
+import WeeklyView from '@/views/WeeklyView.vue';
+import SongDetailView from '@/views/SongDetailView.vue';
 import { useProberSync } from '@/composables/useProberSync';
 import { useAICoach } from '@/composables/useAICoach';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { onMounted } from 'vue';
 import { decrypt } from '@/services/cryptoService';
 
+const activeTab = ref('b50');
+const selectedSongId = ref<number | null>(null);
 const syncStore = useSyncStore();
-const settingsStore = useSettingsStore();
 const { startSync } = useProberSync();
 const { sendMessage, coachAnalysis } = useAICoach();
 
 onMounted(() => {
-  settingsStore.checkSettings();
+  useSettingsStore().checkSettings();
 });
 
 function handleSync() {
-  const encryptedToken = localStorage.getItem('prober_token_enc');
-  if (!encryptedToken) {
-    alert('请先在设置页面配置水鱼 Token');
-    return;
-  }
-  const token = decrypt(encryptedToken);
-  startSync(token);
+  const enc = localStorage.getItem('prober_token_enc');
+  if (!enc) { alert('请先在设置页面配置水鱼 Token'); return; }
+  startSync(decrypt(enc));
 }
 
-function handleAICoach() {
-  coachAnalysis();
-}
-
-function handleAISend(text: string) {
-  sendMessage(text);
-}
+function handleAICoach() { coachAnalysis(); }
+function handleAISend(text: string) { sendMessage(text); }
 </script>
 
 <style scoped>
-.app-container {
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.main-content {
-  flex: 1;
-  overflow-y: auto;
-  background-color: var(--bg-primary);
-}
+.app-container { width: 100%; height: 100vh; overflow: hidden; }
+.main-content { flex: 1; overflow-y: auto; background: var(--bg-primary); }
+.tab-panel { min-height: 100%; }
 </style>

@@ -18,7 +18,7 @@ class MaimaiDatabase extends Dexie {
     this.version(1).stores({
       songs: 'songId, category, bpm',
       playLogs: '++id, songId, difficulty, achievements, playTime, recordMd5',
-      b50Snapshot: '++id, songId, snapshotTime',
+      b50Snapshot: '++id, songId, snapshotTime, ratingContribution',
       songNotes: '[songId+difficulty]',
       syncLogs: '++id, syncType, status, startedAt',
       appSettings: 'key',
