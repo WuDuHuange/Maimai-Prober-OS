@@ -28,7 +28,7 @@
     </div>
 
     <!-- B50 Constant Distribution -->
-    <div class="card">
+    <div id="b50-section" class="card">
       <div class="flex items-center justify-between mb-3">
         <span class="section-title-sm">B50 定数分布</span>
       </div>
@@ -38,7 +38,7 @@
     </div>
 
     <!-- Stats Bar -->
-    <div class="card stats-bar">
+    <div id="stats-section" class="card stats-bar">
       <div v-for="st in statsItems" :key="st.label" class="stat-item">
         <span class="st-label">{{ st.label }}</span>
         <span class="st-num">{{ st.value }}</span>
@@ -47,7 +47,7 @@
     </div>
 
     <!-- Weekly Report -->
-    <div class="card">
+    <div id="weekly-section" class="card">
       <div class="flex items-center justify-between mb-3">
         <div>
           <span class="section-title-sm">极客周报</span>
@@ -86,15 +86,16 @@
 
     <!-- Floating Action Bar -->
     <div class="fab-bar">
-      <button v-for="btn in fabBtns" :key="btn.key" class="fab-btn" :class="{ active: btn.active }" @click="btn.active = !btn.active">
-        {{ btn.label }}
-      </button>
+      <button class="fab-btn active" @click="scrollTo('b50-section')">全景 B50</button>
+      <button class="fab-btn" @click="scrollTo('stats-section')">数据统计</button>
+      <button class="fab-btn" @click="scrollTo('weekly-section')">周报概况</button>
+      <button class="fab-btn" @click="exportData">导出数据</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
@@ -143,13 +144,26 @@ const weeklyStats = computed(() => {
   };
 });
 
-const fabBtns = ref([
-  { key: 'b50', label: '全景 B50', active: true },
-  { key: 'analysis', label: '成绩分析', active: false },
-  { key: 'compare', label: '对比工具', active: false },
-  { key: 'export', label: '导出数据', active: false },
-  { key: 'more', label: '更多工具', active: false },
-]);
+function scrollTo(id: string) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function exportData() {
+  const data = {
+    b50: useB50Store().b50List,
+    records: usePlayLogStore().records,
+    player: usePlayerStore().profile,
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `maimai-data-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 onMounted(async () => {
   await playLogStore.loadFromDB();

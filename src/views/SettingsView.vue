@@ -26,11 +26,12 @@
 
     <section class="setting-card">
       <h2 class="card-h2">AI 服务 API Key</h2>
-      <p class="card-desc">配置各大 AI 服务的 API Key, 在 AI 面板中选择使用。</p>
+      <p class="card-desc">配置各大 AI 服务的 Key 和模型名称, AI 教练将使用选中的服务。</p>
       <div class="ai-keys mt-2">
         <div v-for="svc in aiServices" :key="svc.key" class="ai-key-row">
           <span class="ai-key-label">{{ svc.label }}</span>
-          <input v-model="svc.value" type="password" class="setting-input flex-1" :placeholder="svc.label + ' Key'" />
+          <input v-model="svc.value" type="password" class="setting-input" style="flex:1" :placeholder="svc.label + ' Key'" />
+          <input v-model="svc.model" class="setting-input" style="width:140px" :placeholder="'模型名'" />
           <button class="btn primary" @click="saveAIKey(svc)">保存</button>
         </div>
       </div>
@@ -57,9 +58,10 @@ const importToken = ref('');
 const importTokenStatus = ref<{ text: string; color: string } | null>(null);
 
 const aiServices = reactive([
-  { key: 'gemini', label: 'Gemini', value: '', skey: 'gemini_key_enc' },
-  { key: 'openai', label: 'OpenAI', value: '', skey: 'openai_key_enc' },
-  { key: 'claude', label: 'Claude', value: '', skey: 'claude_key_enc' },
+  { key: 'gemini', label: 'Gemini', value: '', model: '', skey: 'gemini_key_enc', mkey: 'gemini_model' },
+  { key: 'deepseek', label: 'DeepSeek', value: '', model: '', skey: 'deepseek_key_enc', mkey: 'deepseek_model' },
+  { key: 'openai', label: 'OpenAI', value: '', model: '', skey: 'openai_key_enc', mkey: 'openai_model' },
+  { key: 'claude', label: 'Claude', value: '', model: '', skey: 'claude_key_enc', mkey: 'claude_model' },
 ]);
 
 const configuredAIs = computed(() => aiServices.filter(s => !!localStorage.getItem(s.skey)).map(s => s.label));
@@ -78,6 +80,8 @@ onMounted(() => {
   for (const s of aiServices) {
     const v = localStorage.getItem(s.skey);
     if (v) s.value = decrypt(v);
+    const m = localStorage.getItem(s.mkey);
+    if (m) s.model = decrypt(m);
   }
 });
 
@@ -98,7 +102,11 @@ async function doLogin() {
       jwtStatus.value = { text: data.message || '登录凭据错误', color: 'text-danger' }; return;
     }
     localStorage.setItem('jwt_user', username.value.trim());
-    jwtStatus.value = { text: `已登录: ${username.value.trim()}`, color: 'text-success' };
+    const hasImport = !!localStorage.getItem('import_token_enc');
+    jwtStatus.value = {
+      text: hasImport ? '已登录! 可返回首页同步数据' : '已登录! 请在下方配置 Import-Token 后同步',
+      color: hasImport ? 'text-success' : 'text-warning',
+    };
   } catch (err: any) {
     jwtStatus.value = { text: `网络错误: ${err.message}`, color: 'text-danger' };
   }
@@ -113,12 +121,13 @@ function logout() {
 function saveImportToken() {
   if (!importToken.value.trim()) return;
   localStorage.setItem('import_token_enc', encrypt(importToken.value.trim()));
-  importTokenStatus.value = { text: '已保存', color: 'text-success' };
+  importTokenStatus.value = { text: '已保存, 可返回首页点击同步数据', color: 'text-success' };
 }
 
-function saveAIKey(svc: { key: string; label: string; value: string; skey: string }) {
+function saveAIKey(svc: { key: string; value: string; model: string; skey: string; mkey: string }) {
   if (!svc.value.trim()) return;
   localStorage.setItem(svc.skey, encrypt(svc.value.trim()));
+  if (svc.model.trim()) localStorage.setItem(svc.mkey, encrypt(svc.model.trim()));
   localStorage.setItem('ai_active', svc.key);
 }
 </script>
