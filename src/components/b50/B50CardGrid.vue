@@ -52,9 +52,9 @@ async function load() {
   const enriched: CardData[] = list.map(c => ({ ...c, coverUrl: getCoverUrl(c.songId) }));
   cards.value = enriched;
 
-  // Split: DX charts → B15, SD charts → B35 (Maimai community convention)
-  b15.value = enriched.filter(c => c.type === 'DX').slice(0, 15);
-  b35.value = enriched.filter(c => c.type !== 'DX').slice(0, 35);
+  // Split: isNew → B15 (current version), !isNew → B35 (old versions)
+  b15.value = enriched.filter(c => c.isNew).slice(0, 15);
+  b35.value = enriched.filter(c => !c.isNew).slice(0, 35);
 
   b15Total.value = b15.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);
   b35Total.value = b35.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);
