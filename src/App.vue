@@ -50,8 +50,8 @@ onMounted(() => {
 });
 
 function handleSync() {
-  const enc = localStorage.getItem('prober_token_enc');
-  if (!enc) { alert('请配置水鱼 Token'); return; }
+  const enc = localStorage.getItem('import_token_enc');
+  if (!enc) { alert('请先在设置页面配置水鱼 Import-Token'); return; }
   startSync(decrypt(enc));
 }
 

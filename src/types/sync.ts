@@ -1,6 +1,70 @@
+// Official Diving-Fish API response types
+export const API_BASE = 'https://www.diving-fish.com/api/maimaidxprober';
+export const COVERS_BASE = 'https://www.diving-fish.com/covers';
+
+export function getCoverUrl(songId: number): string {
+  const id = songId > 10000 && songId <= 11000 ? songId - 10000 : songId;
+  return `${COVERS_BASE}/${String(id).padStart(5, '0')}.png`;
+}
+
+// /music_data response
+export interface SongItem {
+  id: number;
+  title: string;
+  type: 'DX' | 'SD';
+  ds: number[];
+  level: string[];
+  cids: number[];
+  charts: ChartItem[];
+  basic_info: SongBasicInfo;
+}
+
+export interface ChartItem {
+  notes: number[];
+  charter: string;
+}
+
+export interface SongBasicInfo {
+  title: string;
+  artist: string;
+  genre: string;
+  bpm: number | null;
+  from: string;
+  is_new: boolean;
+}
+
+// /player/records response
+export interface OfficialRecordItem {
+  song_id: number;
+  level_index: number;
+  level_label: string;
+  level: string;
+  title: string;
+  type: 'DX' | 'SD';
+  achievements: number;
+  ds: number;
+  dxScore: number;
+  fc: string;
+  fs: string;
+  rate: string;
+  ra: number;
+}
+
+export interface PlayerRecordsResponse {
+  additional_rating: number;
+  nickname: string;
+  plate: string;
+  rating: number;
+  records: OfficialRecordItem[];
+  username: string;
+}
+
+// Sync result
 export interface SyncResult {
   newCount: number;
   totalCount: number;
+  playerRating: number;
+  playerName: string;
   lastSync: string;
 }
 
@@ -10,6 +74,7 @@ export interface SyncProgress {
   message: string;
 }
 
+// DB models
 export interface SyncLog {
   id?: number;
   syncType: 'full' | 'incremental';
@@ -34,6 +99,11 @@ export interface SongNote {
   updatedAt: string;
 }
 
+export interface JWTLoginBody {
+  username: string;
+  password: string;
+}
+
 export interface PlayerProfile {
   nickname: string;
   rating: number;
@@ -41,37 +111,5 @@ export interface PlayerProfile {
   plate: string;
   courseRank: number;
   classRank: number;
-  trophy: {
-    title: string;
-    color: string;
-  };
-}
-
-export interface PlayRecordItem {
-  song_id: number;
-  level_index: number;
-  achievements: number;
-  dx_score: number;
-  dx_rating: number | null;
-  fc: string;
-  fs: string;
-  title: string;
-  level: string;
-  type: string;
-}
-
-export interface SongItem {
-  song_id: number;
-  title: string;
-  artist: string;
-  category: string;
-  bpm: number | null;
-  image_url: string;
-  charts: ChartInfo[];
-}
-
-export interface ChartInfo {
-  level: number;
-  constant: number;
-  charter: string;
+  trophy: { title: string; color: string };
 }

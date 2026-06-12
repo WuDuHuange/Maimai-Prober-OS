@@ -23,6 +23,8 @@ export interface PlayRecord {
   playTime: string;
   recordMd5: string;
   createdAt: string;
+  rate: string;
+  constant: number;
 }
 
 export interface RatingPoint {

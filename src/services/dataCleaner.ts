@@ -1,54 +1,46 @@
 import CryptoJS from 'crypto-js';
+import type { SongItem, OfficialRecordItem } from '@/types/sync';
 import type { SongMeta, DifficultyType } from '@/types/song';
 import type { PlayRecord } from '@/types/playRecord';
-import type { PlayRecordItem, SongItem } from '@/types/sync';
 
 const LEVEL_INDEX_MAP: Record<number, DifficultyType> = {
-  0: 'basic',
-  1: 'advanced',
-  2: 'expert',
-  3: 'master',
-  4: 'remaster',
+  0: 'basic', 1: 'advanced', 2: 'expert', 3: 'master', 4: 'remaster',
 };
 
 export function mapSongItemToMeta(item: SongItem): SongMeta {
-  const getChart = (idx: number) => item.charts?.[idx] ?? null;
+  const getConst = (idx: number) => item.ds[idx] ?? null;
+  const getLevel = (idx: number) => item.level[idx] ?? null;
 
   return {
-    songId: item.song_id,
-    title: item.title ?? '',
-    artist: item.artist ?? '',
-    category: item.category ?? '',
-    bpm: item.bpm ?? null,
-    imageUrl: item.image_url ?? '',
-
-    basicLevel: getChart(0)?.level ?? null,
-    basicConst: getChart(0)?.constant ?? null,
-    advancedLevel: getChart(1)?.level ?? null,
-    advancedConst: getChart(1)?.constant ?? null,
-    expertLevel: getChart(2)?.level ?? null,
-    expertConst: getChart(2)?.constant ?? null,
-    masterLevel: getChart(3)?.level ?? null,
-    masterConst: getChart(3)?.constant ?? null,
-    remasterLevel: getChart(4)?.level ?? null,
-    remasterConst: getChart(4)?.constant ?? null,
-
-    basicCharter: getChart(0)?.charter ?? null,
-    advancedCharter: getChart(1)?.charter ?? null,
-    expertCharter: getChart(2)?.charter ?? null,
-    masterCharter: getChart(3)?.charter ?? null,
-    remasterCharter: getChart(4)?.charter ?? null,
+    songId: item.id,
+    title: item.title,
+    artist: item.basic_info?.artist ?? '',
+    genre: item.basic_info?.genre ?? '',
+    bpm: item.basic_info?.bpm ?? null,
+    type: item.type,
+    from: item.basic_info?.from ?? '',
+    isNew: item.basic_info?.is_new ?? false,
+    basicConst: getConst(0),
+    advancedConst: getConst(1),
+    expertConst: getConst(2),
+    masterConst: getConst(3),
+    remasterConst: getConst(4),
+    basicLevel: getLevel(0),
+    advancedLevel: getLevel(1),
+    expertLevel: getLevel(2),
+    masterLevel: getLevel(3),
+    remasterLevel: getLevel(4),
   };
 }
 
-export function mapRecordItemToPlayRecord(item: PlayRecordItem): PlayRecord {
+export function mapOfficialRecord(item: OfficialRecordItem): PlayRecord {
   const now = new Date().toISOString();
   return {
     songId: item.song_id,
     difficulty: LEVEL_INDEX_MAP[item.level_index] ?? 'master',
     achievements: item.achievements,
-    dxScore: item.dx_score,
-    dxRating: item.dx_rating ?? null,
+    dxScore: item.dxScore,
+    dxRating: item.ra ?? null,
     fcStatus: item.fc || 'none',
     fsStatus: item.fs || 'none',
     perfectCount: 0,
@@ -65,10 +57,11 @@ export function mapRecordItemToPlayRecord(item: PlayRecordItem): PlayRecord {
     playTime: now,
     recordMd5: computeRecordMd5(item),
     createdAt: now,
+    rate: item.rate ?? '',
+    constant: item.ds,
   };
 }
 
-export function computeRecordMd5(record: PlayRecordItem): string {
-  const input = `${record.song_id}|${record.level_index}|${record.achievements}|${record.dx_score}`;
-  return CryptoJS.MD5(input).toString();
+export function computeRecordMd5(record: OfficialRecordItem): string {
+  return CryptoJS.MD5(`${record.song_id}|${record.level_index}|${record.achievements.toFixed(4)}|${record.dxScore}`).toString();
 }

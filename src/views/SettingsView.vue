@@ -3,19 +3,13 @@
     <h1 class="text-xl font-bold text-text-primary mb-6">设置</h1>
 
     <section class="setting-section">
-      <h2 class="setting-title">水鱼计分器</h2>
-      <p class="setting-desc">Token 可在水鱼网站个人资料页面获取。</p>
+      <h2 class="setting-title">水鱼 Import-Token</h2>
+      <p class="setting-desc">用于获取完整战绩。在水鱼网站登录后, 进入"编辑个人资料"生成 Import-Token。</p>
       <div class="flex gap-2 mt-2">
-        <input
-          v-model="tokenInput"
-          type="password"
-          class="setting-input flex-1"
-          placeholder="输入水鱼 Token"
-        />
-        <button class="setting-btn" @click="validateToken">验证</button>
-        <button class="setting-btn primary" @click="saveToken">保存</button>
+        <input v-model="importTokenInput" type="password" class="setting-input flex-1" placeholder="输入 Import-Token" />
+        <button class="setting-btn primary" @click="saveImportToken">保存</button>
       </div>
-      <p v-if="tokenStatus" class="text-xs mt-1" :class="tokenStatus.color">{{ tokenStatus.text }}</p>
+      <p v-if="importTokenStatus" class="text-xs mt-1" :class="importTokenStatus.color">{{ importTokenStatus.text }}</p>
     </section>
 
     <section class="setting-section">
@@ -48,16 +42,16 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const settingsStore = useSettingsStore();
 
-const tokenInput = ref('');
+const importTokenInput = ref('');
 const geminiInput = ref('');
-const tokenStatus = ref<{ text: string; color: string } | null>(null);
+const importTokenStatus = ref<{ text: string; color: string } | null>(null);
 const geminiStatus = ref<{ text: string; color: string } | null>(null);
 
 onMounted(() => {
-  const savedToken = localStorage.getItem('prober_token_enc');
-  if (savedToken) {
-    tokenInput.value = decrypt(savedToken);
-    tokenStatus.value = { text: '已保存 Token', color: 'text-success' };
+  const saved = localStorage.getItem('import_token_enc');
+  if (saved) {
+    importTokenInput.value = decrypt(saved);
+    importTokenStatus.value = { text: '已保存 Import-Token', color: 'text-success' };
   }
   const savedKey = localStorage.getItem('gemini_key_enc');
   if (savedKey) {
@@ -67,25 +61,10 @@ onMounted(() => {
   settingsStore.checkSettings();
 });
 
-async function validateToken() {
-  if (!tokenInput.value.trim()) {
-    tokenStatus.value = { text: '请输入 Token', color: 'text-warning' };
-    return;
-  }
-  tokenStatus.value = { text: '正在验证...', color: 'text-text-secondary' };
-  try {
-    const { fetchPlayerProfile } = await import('@/services/divingFishApi');
-    const profile = await fetchPlayerProfile(tokenInput.value.trim());
-    tokenStatus.value = { text: `验证成功 - 用户: ${profile.nickname} (Rating: ${profile.rating})`, color: 'text-success' };
-  } catch (err: any) {
-    tokenStatus.value = { text: `验证失败: ${err?.message ?? 'Token 无效'}`, color: 'text-danger' };
-  }
-}
-
-function saveToken() {
-  if (!tokenInput.value.trim()) return;
-  localStorage.setItem('prober_token_enc', encrypt(tokenInput.value.trim()));
-  tokenStatus.value = { text: 'Token 已安全保存', color: 'text-success' };
+function saveImportToken() {
+  if (!importTokenInput.value.trim()) return;
+  localStorage.setItem('import_token_enc', encrypt(importTokenInput.value.trim()));
+  importTokenStatus.value = { text: 'Import-Token 已保存', color: 'text-success' };
   settingsStore.checkSettings();
 }
 
