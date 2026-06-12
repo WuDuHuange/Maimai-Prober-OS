@@ -27,22 +27,13 @@
       </div>
     </div>
 
-    <!-- Charts -->
+    <!-- B50 Constant Distribution -->
     <div class="card">
       <div class="flex items-center justify-between mb-3">
-        <span class="section-title-sm">多维底力追踪</span>
-        <div class="time-filters">
-          <button v-for="d in [7,30,90]" :key="d" class="time-btn" :class="{ active: timeFilter === d }" @click="timeFilter = d">{{ d }}天</button>
-          <button class="time-btn" :class="{ active: timeFilter === 0 }" @click="timeFilter = 0">全部</button>
-        </div>
+        <span class="section-title-sm">B50 定数分布</span>
       </div>
-      <div class="flex gap-4">
-        <div class="flex-1" style="height:200px">
-          <RatingTrendChart :days="timeFilter || 90" />
-        </div>
-        <div class="flex-1" style="height:200px">
-          <JudgeScatterChart :records="allRecords" />
-        </div>
+      <div style="height:240px">
+        <B50DistributionChart />
       </div>
     </div>
 
@@ -107,14 +98,11 @@ import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
-import RatingTrendChart from '@/components/charts/RatingTrendChart.vue';
-import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
+import B50DistributionChart from '@/components/charts/B50DistributionChart.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
 const b50Store = useB50Store();
-const timeFilter = ref(30);
-const allRecords = ref<any[]>([]);
 
 const weekRange = computed(() => {
   const d = new Date();
@@ -166,7 +154,6 @@ const fabBtns = ref([
 onMounted(async () => {
   await playLogStore.loadFromDB();
   await b50Store.loadFromDB();
-  allRecords.value = playLogStore.records;
 });
 </script>
 
