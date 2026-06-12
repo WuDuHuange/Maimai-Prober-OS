@@ -22,14 +22,13 @@
       </div>
     </div>
 
-    <!-- B50 Ranking Chart -->
+    <!-- B50 Card Grid -->
     <div id="b50-section" class="card-static">
       <div class="flex items-center justify-between mb-3">
         <span class="section-title-sm">Best 50 排名</span>
+        <span class="text-xs text-text-muted">Rating 贡献排序 · 悬停查看详情</span>
       </div>
-      <div style="height:420px">
-        <B50RankingChart />
-      </div>
+      <B50CardGrid />
     </div>
 
     <!-- Stats Bar -->
@@ -94,7 +93,7 @@ import { computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
-import B50RankingChart from '@/components/charts/B50RankingChart.vue';
+import B50CardGrid from '@/components/b50/B50CardGrid.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
