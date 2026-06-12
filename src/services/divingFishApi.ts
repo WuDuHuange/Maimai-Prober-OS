@@ -2,14 +2,18 @@ import type { SongItem, PlayerRecordsResponse } from '@/types/sync';
 import { API_BASE } from '@/types/sync';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const mergedHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> || {}),
+  };
   const resp = await fetch(`${API_BASE}${endpoint}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> || {}) },
+    headers: mergedHeaders,
     ...options,
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    throw new Error(`API ${endpoint} => ${resp.status}: ${text || resp.statusText}`);
+    throw new Error(`API ${endpoint} => ${resp.status}: ${text.slice(0, 200) || resp.statusText}`);
   }
   return resp.json();
 }
