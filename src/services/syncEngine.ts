@@ -112,12 +112,17 @@ async function rebuildB50Snapshot(): Promise<void> {
     if (s0) console.log('[B50] 歌曲常量:', { basic: s0.basicConst, advanced: s0.advancedConst, expert: s0.expertConst, master: s0.masterConst, remaster: s0.remasterConst });
   }
 
+  // Use API's dxRating (ra) as primary – this is the correct integer per-song rating.
+  // Falls back to calculated value only if dxRating is missing.
   const scored: Array<{ record: PlayRecord; contribution: number }> = [];
   for (const r of allRecords) {
     const song = songMap.get(r.songId);
     const c = getConstForDifficulty(song, r.difficulty);
     if (c && c > 0) {
-      scored.push({ record: r, contribution: calculateRatingContribution(c, r.achievements) });
+      const contrib = (r.dxRating != null && r.dxRating > 0)
+        ? r.dxRating
+        : calculateRatingContribution(c, r.achievements);
+      scored.push({ record: r, contribution: contrib });
     }
   }
 
@@ -125,18 +130,23 @@ async function rebuildB50Snapshot(): Promise<void> {
   const top50 = scored.slice(0, 50);
 
   const now = new Date().toISOString();
-  const b50Records: B50Record[] = top50.map(s => ({
-    songId: s.record.songId,
-    difficulty: s.record.difficulty,
-    achievements: s.record.achievements,
-    dxScore: s.record.dxScore,
-    dxRating: s.record.dxRating,
-    fcStatus: s.record.fcStatus,
-    fsStatus: s.record.fsStatus,
-    ratingContribution: s.contribution,
-    snapshotTime: now,
-    constant: getConstForDifficulty(songMap.get(s.record.songId), s.record.difficulty) ?? undefined,
-  }));
+  const b50Records: B50Record[] = top50.map(s => {
+    const song = songMap.get(s.record.songId);
+    return {
+      songId: s.record.songId,
+      difficulty: s.record.difficulty,
+      achievements: s.record.achievements,
+      dxScore: s.record.dxScore,
+      dxRating: s.record.dxRating,
+      fcStatus: s.record.fcStatus,
+      fsStatus: s.record.fsStatus,
+      ratingContribution: s.contribution,
+      snapshotTime: now,
+      constant: getConstForDifficulty(song, s.record.difficulty) ?? undefined,
+      isNew: song?.isNew ?? false,
+      type: song?.type ?? 'SD',
+    };
+  });
 
   await db.b50Snapshot.clear();
   if (b50Records.length > 0) await db.b50Snapshot.bulkAdd(b50Records);

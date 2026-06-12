@@ -14,4 +14,6 @@ export interface B50Record {
   fsStatus: string;
   ratingContribution: number;
   snapshotTime: string;
+  isNew?: boolean;
+  type?: 'DX' | 'SD';
 }
