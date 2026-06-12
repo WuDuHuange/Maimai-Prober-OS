@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
@@ -92,11 +92,11 @@ const dashOffset = computed(() => circumference * (1 - syncPct.value / 100));
 
 let timer: number;
 
-onMounted(async () => {
+async function loadSidebarData() {
   syncedCount.value = await db.playLogs.count();
   songCount.value = await db.songs.count();
   const plays = await db.playLogs.orderBy('playTime').reverse().limit(5).toArray();
-  const songIds = [...new Set(plays.map(p => p.songId))];
+  const songIds = [...new Set(plays.map(p => Number(p.songId)))];
   const songs = await db.songs.bulkGet(songIds);
   const songMap = new Map(songs.filter(Boolean).map(s => [s!.songId, s!]));
 
@@ -109,6 +109,13 @@ onMounted(async () => {
       coverUrl: getCoverUrl(Number(p.songId)),
     };
   });
+}
+
+onMounted(loadSidebarData);
+
+// Reload after sync completes
+watch(() => syncStore.status, (s) => {
+  if (s === 'completed') loadSidebarData();
 });
 
 function getConst(song: any, diff: string): number | null {

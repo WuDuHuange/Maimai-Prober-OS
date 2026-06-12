@@ -22,13 +22,13 @@
       </div>
     </div>
 
-    <!-- B50 Constant Distribution -->
+    <!-- B50 Ranking Chart -->
     <div id="b50-section" class="card">
       <div class="flex items-center justify-between mb-3">
-        <span class="section-title-sm">B50 定数分布</span>
+        <span class="section-title-sm">Best 50 排名</span>
       </div>
-      <div style="height:240px">
-        <B50DistributionChart />
+      <div style="height:420px">
+        <B50RankingChart />
       </div>
     </div>
 
@@ -94,7 +94,7 @@ import { computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
-import B50DistributionChart from '@/components/charts/B50DistributionChart.vue';
+import B50RankingChart from '@/components/charts/B50RankingChart.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
