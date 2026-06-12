@@ -130,4 +130,5 @@ async function rebuildB50Snapshot(): Promise<void> {
 
   await db.b50Snapshot.clear();
   if (b50Records.length > 0) await db.b50Snapshot.bulkAdd(b50Records);
+  console.log('[B50] 歌曲数:', songs.length, '记录数:', allRecords.length, '有效评分:', scored.length, 'B50条目:', b50Records.length);
 }

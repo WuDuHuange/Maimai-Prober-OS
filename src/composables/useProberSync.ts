@@ -14,12 +14,14 @@ export function useProberSync() {
 
   async function startSync(token: string) {
     syncStore.startSync();
+    console.log('[Sync] 开始同步, Import-Token 长度:', token.length);
 
     try {
       const result = await fullSync(token, (progress) => {
         syncStore.updateProgress(progress);
       });
 
+      console.log('[Sync] 完成 - 新增:', result.newCount, '总计:', result.totalCount, '玩家:', result.playerName, 'Rating:', result.playerRating);
       syncStore.completeSync(result);
 
       // Update player info from sync result
@@ -37,6 +39,7 @@ export function useProberSync() {
       await playLogStore.loadFromDB();
       await b50Store.loadFromDB();
     } catch (err: any) {
+      console.error('[Sync] 失败:', err?.message || err);
       syncStore.failSync(err?.message ?? String(err));
     }
   }
