@@ -1,29 +1,68 @@
 :root {
+  /* ===== Brand Colors ===== */
   --color-primary: #4A72FF;
   --color-primary-dark: #3560E8;
-  --color-accent: #A67CFF;
+  --color-primary-light: #E8ECFF;
+  --color-accent: #8B6CF6;
   --color-success: #10B981;
   --color-danger: #EF4444;
   --color-warning: #F59E0B;
+
+  /* ===== Difficulty Colors ===== */
   --diff-basic: #10B981;
   --diff-advanced: #F59E0B;
   --diff-expert: #EF4444;
   --diff-master: #8B5CF6;
   --diff-remaster: #EC4899;
-  --bg-primary: #F5F7FA;
-  --bg-secondary: #FFFFFF;
+
+  /* ===== Background Hierarchy ===== */
+  --bg-body: #EEF1F6;          /* 页面底色 — 微蓝紫调浅灰，与白卡片形成柔和对比 */
+  --bg-primary: #EEF1F6;       /* 别名 */
+  --bg-secondary: #FFFFFF;     /* 纯白卡片 */
   --bg-card: #FFFFFF;
-  --bg-hover: #F0F2F5;
-  --bg-tag: #EEF2FF;
+  --bg-hover: #F5F6FA;         /* 悬停态 — 微妙的暖灰 */
+  --bg-tag: #EEF2FF;           /* 标签底色 */
+
+  /* ===== Text Hierarchy ===== */
   --text-primary: #1E293B;
   --text-secondary: #475569;
   --text-muted: #94A3B8;
+
+  /* ===== Shadow Scale — 软阴影系统 ===== */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.05), 0 1px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 16px 60px rgba(0, 0, 0, 0.07), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.03);
+  --shadow-nav: 0 2px 12px rgba(0, 0, 0, 0.03);
+  --shadow-fab: 0 4px 24px rgba(74, 114, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* ===== Border ===== */
+  --border-color: #E8ECF2;
+  --border-color-light: #F0F2F6;
+
+  /* ===== Border Radius ===== */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* ===== Layout ===== */
   --sidebar-width: 260px;
   --ai-panel-width: 310px;
   --header-height: 56px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.06);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.08);
-  --border-color: #E8ECF0;
-  --border-radius: 16px;
+
+  /* ===== Typography ===== */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.02em;
+
+  /* ===== Transition ===== */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

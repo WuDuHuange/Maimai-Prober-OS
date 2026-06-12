@@ -112,15 +112,17 @@ const syncClass = computed(() => {
 }
 
 .nav-link {
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 8px 18px;
+  border-radius: 20px;
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   text-decoration: none;
   position: relative;
-  transition: all 0.15s;
+  transition: all var(--transition-smooth);
   white-space: nowrap;
+  letter-spacing: var(--letter-spacing-normal);
 }
 
 .nav-link:hover { color: var(--text-primary); background: var(--bg-hover); }
@@ -128,7 +130,8 @@ const syncClass = computed(() => {
 .nav-link.active {
   color: var(--color-primary);
   font-weight: 600;
-  background: var(--bg-tag);
+  background: #FFFFFF;
+  box-shadow: var(--shadow-sm);
 }
 
 .header-right {

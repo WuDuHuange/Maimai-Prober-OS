@@ -23,7 +23,7 @@
     </div>
 
     <!-- B50 Ranking Chart -->
-    <div id="b50-section" class="card">
+    <div id="b50-section" class="card-static">
       <div class="flex items-center justify-between mb-3">
         <span class="section-title-sm">Best 50 排名</span>
       </div>
@@ -33,7 +33,7 @@
     </div>
 
     <!-- Stats Bar -->
-    <div id="stats-section" class="card stats-bar">
+    <div id="stats-section" class="card-static stats-bar">
       <div v-for="st in statsItems" :key="st.label" class="stat-item">
         <span class="st-label">{{ st.label }}</span>
         <span class="st-num">{{ st.value }}</span>
@@ -42,7 +42,7 @@
     </div>
 
     <!-- Weekly Report -->
-    <div id="weekly-section" class="card">
+    <div id="weekly-section" class="card-static">
       <div class="flex items-center justify-between mb-3">
         <div>
           <span class="section-title-sm">极客周报</span>
@@ -167,103 +167,130 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.dashboard { padding: 16px; gap: 16px; }
+.dashboard { padding: 20px; gap: 20px; }
 
-.player-card { padding: 20px; }
+.player-card {
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-smooth);
+}
+.player-card:hover { box-shadow: var(--shadow-card-hover); }
+
 .avatar-lg {
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(74, 114, 255, 0.2);
 }
 
-.rating-big { font-size: 36px; font-weight: 800; color: var(--text-primary); line-height: 1.1; }
+.rating-big {
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
 .rating-up { color: var(--color-success); font-size: 13px; font-weight: 600; }
-.rank-text { font-size: 20px; font-weight: 700; color: var(--text-primary); }
 
-.section-title-sm { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-
-.time-filters { display: flex; gap: 4px; }
-.time-btn {
-  padding: 4px 12px;
-  border-radius: 16px;
-  border: none;
-  font-size: 12px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--text-muted);
-  transition: all 0.15s;
+.rank-text {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
-.time-btn.active { background: white; color: var(--color-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
 
-.stats-bar { display: flex; padding: 16px 24px; }
+.section-title-sm {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+/* ===== Stats Bar ===== */
+.stats-bar { display: flex; padding: 20px 28px; gap: 8px; }
 .stat-item { flex: 1; text-align: center; }
-.st-label { font-size: 11px; color: var(--text-muted); display: block; }
-.st-num { font-size: 22px; font-weight: 700; color: var(--text-primary); display: block; margin: 4px 0; }
-.st-change { font-size: 11px; font-weight: 500; }
+.st-label { font-size: 11px; color: var(--text-muted); display: block; letter-spacing: var(--letter-spacing-wide); text-transform: uppercase; }
+.st-num { font-size: 24px; font-weight: 700; color: var(--text-primary); display: block; margin: 6px 0 2px; letter-spacing: var(--letter-spacing-tight); }
+.st-change { font-size: 11px; font-weight: 600; }
 .st-change.up { color: var(--color-success); }
 
+/* ===== Weekly Report Cards ===== */
 .weekly-stat-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 12px;
-  background: var(--bg-primary);
-  border-radius: 12px;
+  gap: 6px;
+  padding: 16px 8px;
+  background: var(--bg-body);
+  border-radius: var(--radius-md);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
+}
+.weekly-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .ws-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
 }
 
-.ws-icon.blue { background: linear-gradient(135deg, #4A72FF, #81A0FF); }
-.ws-icon.cyan { background: linear-gradient(135deg, #06B6D4, #22D3EE); }
-.ws-icon.purple { background: linear-gradient(135deg, #8B5CF6, #A78BFA); }
-.ws-icon.yellow { background: linear-gradient(135deg, #F59E0B, #FBBF24); }
-.ws-icon.green { background: linear-gradient(135deg, #10B981, #34D399); }
+.ws-icon.blue   { background: linear-gradient(135deg, #4A72FF 0%, #7B9AFF 100%); box-shadow: 0 3px 12px rgba(74,114,255,0.25); }
+.ws-icon.cyan   { background: linear-gradient(135deg, #06B6D4 0%, #3BC9DB 100%); box-shadow: 0 3px 12px rgba(6,182,212,0.25); }
+.ws-icon.purple { background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%); box-shadow: 0 3px 12px rgba(139,92,246,0.25); }
+.ws-icon.yellow { background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%); box-shadow: 0 3px 12px rgba(245,158,11,0.25); }
+.ws-icon.green  { background: linear-gradient(135deg, #10B981 0%, #34D399 100%); box-shadow: 0 3px 12px rgba(16,185,129,0.25); }
 
-.ws-label { font-size: 10px; color: var(--text-muted); }
-.ws-val { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+.ws-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.ws-val { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: var(--letter-spacing-tight); }
 .ws-val.rating-up { color: var(--color-success); }
 
+/* ===== FAB Bar — 浮动操作栏 ===== */
 .fab-bar {
   display: flex;
   gap: 4px;
   padding: 6px;
   background: white;
   border-radius: 24px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-fab);
   width: fit-content;
   margin: 0 auto;
+  border: 1px solid var(--border-color-light);
 }
 
 .fab-btn {
-  padding: 8px 18px;
+  padding: 10px 20px;
   border-radius: 20px;
   border: none;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   background: transparent;
   color: var(--text-secondary);
-  transition: all 0.15s;
+  transition: all var(--transition-smooth);
   white-space: nowrap;
+  letter-spacing: var(--letter-spacing-normal);
 }
 
 .fab-btn.active {
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   color: white;
-  box-shadow: 0 4px 12px rgba(74,114,255,0.3);
+  font-weight: 600;
+  box-shadow: 0 3px 12px rgba(74, 114, 255, 0.25);
 }
 
-.fab-btn:hover:not(.active) { background: var(--bg-hover); }
+.fab-btn:hover:not(.active) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 </style>

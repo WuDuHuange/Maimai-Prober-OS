@@ -61,5 +61,5 @@ function handleAISend(text: string) { sendMessage(text); }
 
 <style scoped>
 .app-container { width: 100%; height: 100vh; overflow: hidden; }
-.main-content { flex: 1; overflow-y: auto; background: var(--bg-primary); }
+.main-content { flex: 1; overflow-y: auto; background: var(--bg-body); }
 </style>

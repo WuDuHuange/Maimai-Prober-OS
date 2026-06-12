@@ -34,14 +34,14 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 .right-panel {
   width: var(--ai-panel-width);
   height: 100%;
-  background: var(--bg-secondary);
+  background: var(--bg-body);
   border-left: 1px solid var(--border-color);
   overflow-y: auto;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 16px;
-  gap: 16px;
+  padding: 20px;
+  gap: 20px;
 }
 
 .ai-header {
@@ -52,11 +52,12 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 
 .beta-tag {
   font-size: 9px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: #EEF2FF;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-tag);
   color: var(--color-primary);
+  letter-spacing: var(--letter-spacing-wide);
 }
 
 .close-btn {
@@ -73,20 +74,26 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 .ai-greeting {
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.7;
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-color-light);
 }
 
 .star-icon {
   color: var(--color-warning);
   font-size: 16px;
   animation: twinkle 2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 @keyframes twinkle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.9); }
 }
 
 .practice-list {
@@ -97,18 +104,20 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 
 .practice-item {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  padding: 10px;
-  background: var(--bg-primary);
-  border-radius: 12px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--border-color-light);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
   cursor: pointer;
 }
 
 .practice-item:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-card);
 }
 
 .rank-indicator {
@@ -126,30 +135,31 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 }
 
 .song-thumb {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
 }
 
 .practice-info {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .p-song-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .diff-tag-sm {
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-weight: 500;
+  font-weight: 600;
   width: fit-content;
 }
 
@@ -160,7 +170,7 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
   font-size: 10px;
   color: var(--text-muted);
   background: var(--bg-hover);
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   width: fit-content;
 }
@@ -169,12 +179,14 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 2px;
 }
 
 .score-gain {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--color-success);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .score-target {
@@ -185,27 +197,29 @@ const hasData = computed(() => usePlayLogStore().totalCount > 0);
 .ai-message {
   font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.6;
-  padding: 12px;
-  background: var(--bg-primary);
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
+  line-height: 1.7;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-color-light);
 }
 
 .robot-float {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
   font-weight: 700;
-  align-self: flex-end;
+  font-size: 18px;
+  box-shadow: 0 6px 24px rgba(74, 114, 255, 0.25);
+  margin-top: auto;
+  align-self: center;
   animation: float 3s ease-in-out infinite;
-  box-shadow: 0 4px 12px rgba(74,114,255,0.3);
 }
 
 @keyframes float {
