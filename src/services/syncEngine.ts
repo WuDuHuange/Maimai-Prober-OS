@@ -60,9 +60,8 @@ export async function fullSync(
     emit(1, 3, `共获取 ${totalRecords} 条记录`);
 
     // Step 4: Deduplicate and insert new records
-    const existingMd5s = new Set(
-      (await db.playLogs.orderBy('recordMd5').keys()).map(k => String(k))
-    );
+    const allExisting = await db.playLogs.toArray();
+    const existingMd5s = new Set(allExisting.map(r => r.recordMd5));
 
     const newRecords: PlayRecord[] = [];
     for (let i = 0; i < recordItems.length; i++) {
