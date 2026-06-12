@@ -25,5 +25,20 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    proxy: {
+      "/api-df": {
+        target: "https://www.diving-fish.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-df/, "/api/maimaidxprober"),
+        secure: true,
+        cookieDomainRewrite: "localhost",
+      },
+      "/df-covers": {
+        target: "https://www.diving-fish.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/df-covers/, "/covers"),
+        secure: true,
+      },
+    },
   },
 });

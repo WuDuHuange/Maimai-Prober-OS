@@ -1,6 +1,6 @@
 // Official Diving-Fish API response types
-export const API_BASE = 'https://www.diving-fish.com/api/maimaidxprober';
-export const COVERS_BASE = 'https://www.diving-fish.com/covers';
+export const API_BASE = import.meta.env.DEV ? '/api-df' : 'https://www.diving-fish.com/api/maimaidxprober';
+export const COVERS_BASE = import.meta.env.DEV ? '/df-covers' : 'https://www.diving-fish.com/covers';
 
 export function getCoverUrl(songId: number): string {
   const id = songId > 10000 && songId <= 11000 ? songId - 10000 : songId;

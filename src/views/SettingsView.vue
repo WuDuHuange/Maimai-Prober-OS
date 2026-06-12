@@ -87,7 +87,6 @@ async function doLogin() {
   }
   jwtStatus.value = { text: '登录中...', color: 'text-text-secondary' };
   try {
-    // Browser auto-manages cookies with credentials: 'include'
     const resp = await fetch(`${API_BASE}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,14 +97,8 @@ async function doLogin() {
       const data = await resp.json().catch(() => ({}));
       jwtStatus.value = { text: data.message || '登录凭据错误', color: 'text-danger' }; return;
     }
-    // JWT cookie is auto-stored by the browser -- check if it works
-    const verify = await fetch(`${API_BASE}/player/agreement`, { credentials: 'include' });
-    if (verify.ok) {
-      localStorage.setItem('jwt_user', username.value.trim());
-      jwtStatus.value = { text: `已登录: ${username.value.trim()}`, color: 'text-success' };
-    } else {
-      jwtStatus.value = { text: '登录成功但 Cookie 未生效 (需同源或代理)', color: 'text-warning' };
-    }
+    localStorage.setItem('jwt_user', username.value.trim());
+    jwtStatus.value = { text: `已登录: ${username.value.trim()}`, color: 'text-success' };
   } catch (err: any) {
     jwtStatus.value = { text: `网络错误: ${err.message}`, color: 'text-danger' };
   }

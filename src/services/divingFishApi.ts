@@ -1,9 +1,12 @@
 import type { SongItem, PlayerRecordsResponse } from '@/types/sync';
 import { API_BASE } from '@/types/sync';
 
-async function request<T>(endpoint: string, headers?: Record<string, string>): Promise<T> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json', ...headers };
-  const resp = await fetch(`${API_BASE}${endpoint}`, { headers: h });
+async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const resp = await fetch(`${API_BASE}${endpoint}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(options?.headers as Record<string, string> || {}) },
+    ...options,
+  });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
     throw new Error(`API ${endpoint} => ${resp.status}: ${text || resp.statusText}`);
@@ -25,19 +28,15 @@ export async function fetchSongList(etag?: string): Promise<{ songs: SongItem[];
 
 // Import-Token auth: get player full records
 export async function fetchPlayerRecords(importToken: string): Promise<PlayerRecordsResponse> {
-  return request<PlayerRecordsResponse>('/player/records', { 'Import-Token': importToken });
+  return request<PlayerRecordsResponse>('/player/records', {
+    headers: { 'Import-Token': importToken },
+  });
 }
 
 // Public: get simplified b50 (POST with username)
 export async function queryPlayerB50(username: string): Promise<PlayerRecordsResponse> {
-  const resp = await fetch(`${API_BASE}/query/player`, {
+  return request<PlayerRecordsResponse>('/query/player', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, b50: '1' }),
   });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(`查询用户失败: ${resp.status} ${text}`);
-  }
-  return resp.json();
 }
