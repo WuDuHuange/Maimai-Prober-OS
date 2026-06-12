@@ -12,7 +12,7 @@
       <div class="section-header">最近同步</div>
       <div class="recent-list">
         <div v-for="r in recentPlays" :key="r.id" class="recent-item">
-          <div class="song-cover" />
+          <img :src="r.coverUrl" class="song-cover" @error="e => (e.target as HTMLImageElement).style.display='none'" />
           <div class="recent-info">
             <span class="song-name">{{ r.title }}</span>
             <span class="song-artist">{{ r.artist }}</span>
@@ -61,6 +61,7 @@ import { useSyncStore } from '@/stores/useSyncStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { db } from '@/services/db';
+import { getCoverUrl } from '@/types/sync';
 
 defineEmits<{ sync: [] }>();
 
@@ -100,11 +101,12 @@ onMounted(async () => {
   const songMap = new Map(songs.filter(Boolean).map(s => [s!.songId, s!]));
 
   recentPlays.value = plays.map(p => {
-    const s = songMap.get(p.songId);
+    const s = songMap.get(Number(p.songId));
     return {
       id: p.id, title: s?.title ?? `#${p.songId}`,
       artist: s?.artist ?? '', difficulty: p.difficulty,
       constant: getConst(s, p.difficulty), achievements: p.achievements,
+      coverUrl: getCoverUrl(Number(p.songId)),
     };
   });
 });

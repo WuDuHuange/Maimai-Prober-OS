@@ -103,8 +103,8 @@ async function rebuildB50Snapshot(): Promise<void> {
   const allRecords = await db.playLogs.toArray();
 
   // Debug: check first 3 songs and records
-  if (songs.length > 0) console.log('[B50] 示例歌曲:', JSON.stringify(songs[0]));
-  if (allRecords.length > 0) console.log('[B50] 示例记录:', JSON.stringify(allRecords[0]));
+  if (songs.length > 0) console.log('[B50] 示例歌曲 songId type:', typeof songs[0].songId, '值:', songs[0].songId);
+  if (allRecords.length > 0) console.log('[B50] 示例记录 songId type:', typeof allRecords[0].songId, '值:', allRecords[0].songId);
   if (songs.length > 0 && allRecords.length > 0) {
     const r0 = allRecords[0];
     const s0 = songMap.get(r0.songId);
