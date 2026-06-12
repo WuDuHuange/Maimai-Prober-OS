@@ -102,6 +102,16 @@ async function rebuildB50Snapshot(): Promise<void> {
   const songMap = new Map(songs.map(s => [s.songId, s]));
   const allRecords = await db.playLogs.toArray();
 
+  // Debug: check first 3 songs and records
+  if (songs.length > 0) console.log('[B50] 示例歌曲:', JSON.stringify(songs[0]));
+  if (allRecords.length > 0) console.log('[B50] 示例记录:', JSON.stringify(allRecords[0]));
+  if (songs.length > 0 && allRecords.length > 0) {
+    const r0 = allRecords[0];
+    const s0 = songMap.get(r0.songId);
+    console.log('[B50] 记录#1 songId:', r0.songId, 'difficulty:', r0.difficulty, '歌曲找到:', !!s0);
+    if (s0) console.log('[B50] 歌曲常量:', { basic: s0.basicConst, advanced: s0.advancedConst, expert: s0.expertConst, master: s0.masterConst, remaster: s0.remasterConst });
+  }
+
   const scored: Array<{ record: PlayRecord; contribution: number }> = [];
   for (const r of allRecords) {
     const song = songMap.get(r.songId);
