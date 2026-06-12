@@ -6,7 +6,7 @@
       <div class="b50-section">
         <div class="section-head">
           <span class="section-badge new-badge">B15</span>
-          <span class="section-sub">新版本歌曲 · Top {{ b15.length }}</span>
+          <span class="section-sub">DX 谱面 · Top {{ b15.length }}</span>
           <span class="section-total">合计 {{ b15Total }}</span>
         </div>
         <div class="b50-grid">
@@ -52,9 +52,9 @@ async function load() {
   const enriched: CardData[] = list.map(c => ({ ...c, coverUrl: getCoverUrl(c.songId) }));
   cards.value = enriched;
 
-  // isNew → B15 (new version), !isNew → B35 (old version)
-  b15.value = enriched.filter(c => c.isNew).slice(0, 15);
-  b35.value = enriched.filter(c => !c.isNew).slice(0, 35);
+  // Split: DX charts → B15, SD charts → B35 (Maimai community convention)
+  b15.value = enriched.filter(c => c.type === 'DX').slice(0, 15);
+  b35.value = enriched.filter(c => c.type !== 'DX').slice(0, 35);
 
   b15Total.value = b15.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);
   b35Total.value = b35.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);

@@ -25,6 +25,9 @@ export const useB50Store = defineStore('b50', () => {
         title: song?.title,
         artist: song?.artist,
         constant: song ? getConstByDifficulty(song, b.difficulty) ?? undefined : undefined,
+        // 从歌曲表补充 isNew/type（旧快照可能没有这些字段）
+        isNew: b.isNew ?? song?.isNew ?? false,
+        type: b.type ?? song?.type ?? 'SD',
       };
     });
 

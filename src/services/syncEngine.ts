@@ -112,9 +112,8 @@ async function rebuildB50Snapshot(): Promise<void> {
     if (s0) console.log('[B50] 歌曲常量:', { basic: s0.basicConst, advanced: s0.advancedConst, expert: s0.expertConst, master: s0.masterConst, remaster: s0.remasterConst });
   }
 
-  // Use API's dxRating (ra) as primary – this is the correct integer per-song rating.
-  // Falls back to calculated value only if dxRating is missing.
-  const scored: Array<{ record: PlayRecord; contribution: number }> = [];
+  // Score all records
+  const scored: Array<{ record: PlayRecord; contribution: number; isNew: boolean; type: string }> = [];
   for (const r of allRecords) {
     const song = songMap.get(r.songId);
     const c = getConstForDifficulty(song, r.difficulty);
@@ -122,12 +121,23 @@ async function rebuildB50Snapshot(): Promise<void> {
       const contrib = (r.dxRating != null && r.dxRating > 0)
         ? r.dxRating
         : calculateRatingContribution(c, r.achievements);
-      scored.push({ record: r, contribution: contrib });
+      scored.push({
+        record: r,
+        contribution: contrib,
+        isNew: song?.isNew ?? false,
+        type: song?.type ?? 'SD',
+      });
     }
   }
 
-  scored.sort((a, b) => b.contribution - a.contribution);
-  const top50 = scored.slice(0, 50);
+  // Separate into new-version (B15) and old-version (B35), sort each by contribution
+  const newScored = scored.filter(s => s.isNew).sort((a, b) => b.contribution - a.contribution);
+  const oldScored = scored.filter(s => !s.isNew).sort((a, b) => b.contribution - a.contribution);
+
+  // B15 = top 15 new, B35 = top 35 old
+  const b15 = newScored.slice(0, 15);
+  const b35 = oldScored.slice(0, 35);
+  const top50 = [...b15, ...b35];
 
   const now = new Date().toISOString();
   const b50Records: B50Record[] = top50.map(s => {
@@ -143,12 +153,13 @@ async function rebuildB50Snapshot(): Promise<void> {
       ratingContribution: s.contribution,
       snapshotTime: now,
       constant: getConstForDifficulty(song, s.record.difficulty) ?? undefined,
-      isNew: song?.isNew ?? false,
-      type: song?.type ?? 'SD',
+      isNew: s.isNew,
+      type: s.type as 'DX' | 'SD',
     };
   });
 
   await db.b50Snapshot.clear();
   if (b50Records.length > 0) await db.b50Snapshot.bulkAdd(b50Records);
-  console.log('[B50] 歌曲数:', songs.length, '记录数:', allRecords.length, '有效评分:', scored.length, 'B50条目:', b50Records.length);
+  console.log('[B50] 歌曲数:', songs.length, '记录数:', allRecords.length, '有效评分:', scored.length,
+    '| B15(新):', b15.length, 'B35(旧):', b35.length, '| B50条目:', b50Records.length);
 }
