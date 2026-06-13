@@ -50,8 +50,13 @@ export const usePlayLogStore = defineStore('playLog', () => {
       .slice(0, limit);
   }
 
+  /** 获取最近的游玩记录（不限难度） */
+  async function getRecentPlays(limit = 50): Promise<PlayRecord[]> {
+    return db.playLogs.orderBy('playTime').reverse().limit(limit).toArray();
+  }
+
   return {
     records, totalCount, lastSyncTime,
-    loadFromDB, getSongHistory, getRatingTrend, getRecentFails,
+    loadFromDB, getSongHistory, getRatingTrend, getRecentFails, getRecentPlays,
   };
 });

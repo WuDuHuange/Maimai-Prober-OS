@@ -34,6 +34,8 @@ export function useProberSync() {
         classRank: 0,
         trophy: { title: '', color: '' },
       });
+      // 持久化玩家名，供下次启动恢复
+      localStorage.setItem('last_player_name', result.playerName);
 
       await songStore.loadFromDB();
       await playLogStore.loadFromDB();

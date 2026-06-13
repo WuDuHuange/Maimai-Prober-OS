@@ -1,12 +1,18 @@
 <template>
   <div class="chart-container">
     <div ref="chartEl" class="chart-box" />
-    <p v-if="noData" class="empty-text">暂无判定数据</p>
+    <div v-if="noData" class="empty-state-overlay">
+      <svg class="empty-icon-sm" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+      </svg>
+      <p class="empty-title-sm">判定数据不可用</p>
+      <p class="empty-desc-sm">水鱼 API 不返回 Fast / Late 明细<br/>建议使用官方查分器获取判定偏差</p>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useECharts } from '@/composables/useECharts';
 import * as echarts from 'echarts';
 import type { PlayRecord } from '@/types/playRecord';
@@ -19,12 +25,13 @@ const chartEl = ref<HTMLElement | null>(null);
 const noData = ref(false);
 const { setOption } = useECharts(chartEl);
 
-onMounted(() => {
+function renderChart() {
   const filtered = props.records.filter(r => r.fastCount > 0 || r.lateCount > 0);
   if (filtered.length === 0) {
     noData.value = true;
     return;
   }
+  noData.value = false;
 
   const scatterData = filtered.map((r, i) => ({
     value: [i + 1, r.fastCount - r.lateCount],
@@ -80,7 +87,16 @@ onMounted(() => {
   };
 
   setOption(option);
+}
+
+onMounted(() => {
+  renderChart();
 });
+
+// 数据异步返回后重新渲染图表
+watch(() => props.records, () => {
+  renderChart();
+}, { deep: true });
 </script>
 
 <style scoped>
@@ -96,13 +112,16 @@ onMounted(() => {
   height: 100%;
 }
 
-.empty-text {
+.empty-state-overlay {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
-  font-size: 13px;
+  gap: 8px;
 }
+.empty-icon-sm { color: var(--text-muted); opacity: 0.6; }
+.empty-title-sm { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.empty-desc-sm { font-size: 11px; color: var(--text-muted); text-align: center; line-height: 1.5; }
 </style>

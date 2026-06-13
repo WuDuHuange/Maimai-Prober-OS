@@ -25,17 +25,83 @@
     </section>
 
     <section class="setting-card">
-      <h2 class="card-h2">AI 服务 API Key</h2>
-      <p class="card-desc">配置各大 AI 服务的 Key 和模型名称, AI 教练将使用选中的服务。</p>
-      <div class="ai-keys mt-2">
-        <div v-for="svc in aiServices" :key="svc.key" class="ai-key-row">
-          <span class="ai-key-label">{{ svc.label }}</span>
-          <input v-model="svc.value" type="password" class="setting-input" style="flex:1" :placeholder="svc.label + ' Key'" />
-          <input v-model="svc.model" class="setting-input" style="width:140px" :placeholder="'模型名'" />
-          <button class="btn primary" @click="saveAIKey(svc)">保存</button>
+      <h2 class="card-h2">AI 服务配置</h2>
+      <p class="card-desc">选择一个 AI 供应商，填入 API Key，即可使用 AI 教练分析战绩。</p>
+
+      <!-- 供应商选择 -->
+      <div class="provider-tabs mt-3">
+        <button
+          v-for="p in providerDefs"
+          :key="p.key"
+          class="provider-tab"
+          :class="{ active: activeProvider === p.key }"
+          :title="p.desc"
+          @click="selectProvider(p.key)"
+        >
+          {{ p.label }}
+        </button>
+      </div>
+
+      <!-- 当前供应商配置 -->
+      <div class="ai-config-panel mt-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-text-muted">API Key</span>
+          <span v-if="remoteUpdatedAt" class="text-xs text-text-muted">模型列表更新于 {{ fmtTime(remoteUpdatedAt) }}</span>
+        </div>
+        <div class="flex gap-2 mb-2">
+          <input
+            v-model="aiKeyInput"
+            type="password"
+            class="setting-input flex-1"
+            :placeholder="`输入 ${activeProvider} API Key`"
+          />
+          <button class="btn primary" @click="handleSaveAI" :disabled="!aiKeyInput.trim()">保存</button>
+        </div>
+
+        <!-- 模型选择 -->
+        <div class="model-select-row">
+          <div class="flex items-center justify-between">
+            <span class="model-label">模型</span>
+            <button class="refresh-models-btn" @click="handleRefreshModels" :disabled="remoteLoading">
+              {{ remoteLoading ? '更新中...' : '🔄 联网更新' }}
+            </button>
+          </div>
+          <div class="model-presets">
+            <button
+              v-for="mp in mergedPresets"
+              :key="mp.id"
+              class="model-chip"
+              :class="{ active: aiModelInput === mp.id }"
+              @click="aiModelInput = mp.id"
+              :title="mp.id"
+            >
+              {{ mp.label }}
+            </button>
+          </div>
+          <input
+            v-model="aiModelInput"
+            class="setting-input model-custom"
+            placeholder="或输入自定义模型名..."
+          />
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="flex gap-2 mt-3 items-center">
+          <button class="btn" @click="handleTestAI" :disabled="aiTestLoading || !aiKeyInput.trim()">
+            {{ aiTestLoading ? '测试中...' : '🔗 测试连接' }}
+          </button>
+          <button class="btn" @click="handleRemoveAI" v-if="aiKeyInput">移除配置</button>
+          <span v-if="aiTestResult" class="test-result text-xs" :class="aiTestResult.ok ? 'text-success' : 'text-danger'">
+            {{ aiTestResult.message }}
+          </span>
         </div>
       </div>
-      <p class="text-xs text-text-muted mt-2">已配置: {{ configuredAIs.join(', ') || '无' }}</p>
+
+      <!-- 已配置供应商列表 -->
+      <p class="text-xs text-text-muted mt-2">
+        已配置: {{ configuredProviders.map(p => p.label).join(', ') || '无' }}
+        <span v-if="activeProvider" class="ml-1">｜ 当前: {{ providerDefs.find(p => p.key === activeProvider)?.label }}</span>
+      </p>
     </section>
 
     <section class="setting-card">
@@ -49,6 +115,17 @@
 import { ref, reactive, onMounted, computed } from 'vue';
 import { encrypt, decrypt } from '@/services/cryptoService';
 import { API_BASE } from '@/types/sync';
+import {
+  type AIProvider,
+  MODEL_PRESETS,
+  getPresetsForProvider,
+  saveAIConfig,
+  removeAIConfig,
+  testAIConnection,
+  fetchRemoteModels,
+  getCachedRemoteModels,
+  type RemoteModelEntry,
+} from '@/services/aiService';
 
 const username = ref('');
 const password = ref('');
@@ -57,14 +134,104 @@ const jwtStatus = ref<{ text: string; color: string } | null>(null);
 const importToken = ref('');
 const importTokenStatus = ref<{ text: string; color: string } | null>(null);
 
-const aiServices = reactive([
-  { key: 'gemini', label: 'Gemini', value: '', model: '', skey: 'gemini_key_enc', mkey: 'gemini_model' },
-  { key: 'deepseek', label: 'DeepSeek', value: '', model: '', skey: 'deepseek_key_enc', mkey: 'deepseek_model' },
-  { key: 'openai', label: 'OpenAI', value: '', model: '', skey: 'openai_key_enc', mkey: 'openai_model' },
-  { key: 'claude', label: 'Claude', value: '', model: '', skey: 'claude_key_enc', mkey: 'claude_model' },
-]);
+// ---- AI 配置 ----
+const activeProvider = ref<AIProvider>('gemini');
+const aiKeyInput = ref('');
+const aiModelInput = ref('');
+const aiTestResult = ref<{ ok: boolean; message: string } | null>(null);
+const aiTestLoading = ref(false);
 
-const configuredAIs = computed(() => aiServices.filter(s => !!localStorage.getItem(s.skey)).map(s => s.label));
+// 远程模型
+const remoteModels = ref<RemoteModelEntry[]>([]);
+const remoteUpdatedAt = ref<string | null>(null);
+const remoteLoading = ref(false);
+
+/** 当前供应商可用的模型列表（内置 + 远程合并） */
+const mergedPresets = computed(() => {
+  const builtin = getPresetsForProvider(activeProvider.value);
+  const remote = remoteModels.value.filter(m => m.provider === activeProvider.value);
+  const seen = new Set(builtin.map(m => m.id));
+  const extra = remote.filter(m => !seen.has(m.id));
+  return [...builtin, ...extra];
+});
+
+const providerDefs: { key: AIProvider; label: string; desc: string }[] = [
+  { key: 'gemini', label: 'Google Gemini', desc: '含 Gemini + Gemma 系列模型' },
+  { key: 'openai', label: 'OpenAI', desc: 'GPT-4o / GPT-4.1 等' },
+  { key: 'deepseek', label: 'DeepSeek', desc: 'DeepSeek V3 / R1' },
+  { key: 'claude', label: 'Anthropic Claude', desc: 'Claude Sonnet 4 / Haiku' },
+];
+
+const configuredProviders = computed(() =>
+  providerDefs.filter(p => !!localStorage.getItem(`ai_key_${p.key}`.replace('ai_key_', p.key === 'gemini' ? 'gemini_key_enc' : p.key === 'openai' ? 'openai_key_enc' : p.key === 'deepseek' ? 'deepseek_key_enc' : 'claude_key_enc')))
+);
+
+const currentPresets = computed(() => getPresetsForProvider(activeProvider.value));
+
+function selectProvider(p: AIProvider) {
+  activeProvider.value = p;
+  aiTestResult.value = null;
+  // 恢复已保存的配置
+  const keyMap: Record<string, string> = {
+    gemini: 'gemini_key_enc', openai: 'openai_key_enc',
+    deepseek: 'deepseek_key_enc', claude: 'claude_key_enc',
+  };
+  const modelMap: Record<string, string> = {
+    gemini: 'gemini_model', openai: 'openai_model',
+    deepseek: 'deepseek_model', claude: 'claude_model',
+  };
+  const encKey = localStorage.getItem(keyMap[p]);
+  aiKeyInput.value = encKey ? decrypt(encKey) : '';
+  const encModel = localStorage.getItem(modelMap[p]);
+  aiModelInput.value = encModel ? decrypt(encModel) : '';
+}
+
+async function handleSaveAI() {
+  if (!aiKeyInput.value.trim()) {
+    aiTestResult.value = { ok: false, message: '请输入 API Key' };
+    return;
+  }
+  const model = aiModelInput.value.trim() || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id || '';
+  saveAIConfig(activeProvider.value, aiKeyInput.value.trim(), model);
+  aiTestResult.value = { ok: true, message: '配置已保存 ✓' };
+}
+
+async function handleTestAI() {
+  if (!aiKeyInput.value.trim()) {
+    aiTestResult.value = { ok: false, message: '请先输入 API Key' };
+    return;
+  }
+  aiTestLoading.value = true;
+  aiTestResult.value = null;
+  const model = aiModelInput.value.trim() || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id || '';
+  const result = await testAIConnection(activeProvider.value, aiKeyInput.value.trim(), model);
+  aiTestResult.value = result;
+  aiTestLoading.value = false;
+}
+
+function handleRemoveAI() {
+  removeAIConfig(activeProvider.value);
+  aiKeyInput.value = '';
+  aiModelInput.value = '';
+  aiTestResult.value = { ok: true, message: '配置已移除' };
+}
+
+async function handleRefreshModels() {
+  remoteLoading.value = true;
+  try {
+    const result = await fetchRemoteModels();
+    remoteModels.value = result.models;
+    remoteUpdatedAt.value = result.updatedAt;
+  } catch (err: any) {
+    aiTestResult.value = { ok: false, message: `更新失败: ${err.message}` };
+  } finally {
+    remoteLoading.value = false;
+  }
+}
+
+function fmtTime(iso: string): string {
+  try { return new Date(iso).toLocaleString('zh-CN'); } catch { return iso; }
+}
 
 onMounted(() => {
   const jwtUser = localStorage.getItem('jwt_user');
@@ -77,11 +244,15 @@ onMounted(() => {
     importToken.value = decrypt(it);
     importTokenStatus.value = { text: '已保存', color: 'text-success' };
   }
-  for (const s of aiServices) {
-    const v = localStorage.getItem(s.skey);
-    if (v) s.value = decrypt(v);
-    const m = localStorage.getItem(s.mkey);
-    if (m) s.model = decrypt(m);
+  // 恢复当前激活的 AI 供应商
+  const active = (localStorage.getItem('ai_active') as AIProvider | null) || 'gemini';
+  selectProvider(active);
+
+  // 加载缓存的远程模型列表
+  const cached = getCachedRemoteModels();
+  if (cached.models.length > 0) {
+    remoteModels.value = cached.models;
+    remoteUpdatedAt.value = cached.updatedAt;
   }
 });
 
@@ -122,13 +293,6 @@ function saveImportToken() {
   if (!importToken.value.trim()) return;
   localStorage.setItem('import_token_enc', encrypt(importToken.value.trim()));
   importTokenStatus.value = { text: '已保存, 可返回首页点击同步数据', color: 'text-success' };
-}
-
-function saveAIKey(svc: { key: string; value: string; model: string; skey: string; mkey: string }) {
-  if (!svc.value.trim()) return;
-  localStorage.setItem(svc.skey, encrypt(svc.value.trim()));
-  if (svc.model.trim()) localStorage.setItem(svc.mkey, encrypt(svc.model.trim()));
-  localStorage.setItem('ai_active', svc.key);
 }
 </script>
 
@@ -202,19 +366,56 @@ function saveAIKey(svc: { key: string; value: string; model: string; skey: strin
   box-shadow: 0 4px 14px rgba(74, 114, 255, 0.3);
 }
 
-.ai-keys { display: flex; flex-direction: column; gap: 8px; }
-
-.ai-key-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ===== AI 供应商选择标签 ===== */
+.provider-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.provider-tab {
+  padding: 7px 16px; border-radius: 9999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-body);
+  font-size: 12px; font-weight: 600;
+  color: var(--text-secondary); cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.provider-tab:hover { background: white; border-color: rgba(74,114,255,0.2); }
+.provider-tab.active {
+  background: var(--color-primary); border-color: var(--color-primary);
+  color: white; box-shadow: 0 2px 10px rgba(74,114,255,0.2);
 }
 
-.ai-key-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  width: 56px;
-  flex-shrink: 0;
+.ai-config-panel { background: var(--bg-body); border-radius: var(--radius-md); padding: 14px; }
+
+.model-select-row { display: flex; flex-direction: column; gap: 8px; }
+.model-label {
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.03em;
 }
+.model-presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.model-chip {
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--border-color); background: var(--bg-card);
+  font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  cursor: pointer; transition: all var(--transition-fast); white-space: nowrap;
+}
+.model-chip:hover { border-color: rgba(74,114,255,0.25); color: var(--color-primary); }
+.model-chip.active {
+  background: rgba(74,114,255,0.08); border-color: var(--color-primary);
+  color: var(--color-primary); font-weight: 700;
+}
+.model-custom { width: 100%; margin-top: 2px; }
+
+.refresh-models-btn {
+  padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  font-size: 11px; font-weight: 600;
+  color: var(--color-primary); cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.refresh-models-btn:hover:not(:disabled) {
+  background: rgba(74,114,255,0.06); border-color: rgba(74,114,255,0.3);
+}
+.refresh-models-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.test-result { font-weight: 600; }
 </style>

@@ -5,6 +5,9 @@ import path from "path";
 export default defineConfig({
   plugins: [vue()],
 
+  // GitHub Pages 部署基路径（仓库名）
+  base: '/Maimai-Prober-OS/',
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

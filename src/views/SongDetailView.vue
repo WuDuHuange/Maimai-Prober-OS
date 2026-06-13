@@ -1,23 +1,34 @@
 <template>
   <div class="song-detail p-4 flex flex-col gap-4 h-full overflow-y-auto">
     <template v-if="!isNaN(songId) && songId > 0">
-      <!-- 标题和难度选择 -->
-      <div class="flex items-center justify-between">
+      <!-- 返回按钮 + 标题 -->
+      <div class="flex items-center gap-3 mb-1">
+        <button class="back-btn" @click="$emit('back')" title="返回歌曲库">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
+        </button>
         <div>
           <h1 class="text-lg font-bold">{{ song?.title ?? '未知曲目' }}</h1>
-          <p v-if="song" class="text-xs text-text-muted mt-0.5">{{ song.artist }}</p>
+          <p v-if="song" class="text-xs text-text-muted mt-0.5">{{ song.artist }} · {{ song.type }} · BPM {{ song.bpm ?? '?' }}</p>
         </div>
-        <div class="flex gap-1">
-          <button
-            v-for="diff in availableDiffs"
-            :key="diff"
-            class="diff-btn"
-            :class="{ active: selectedDiff === diff }"
-            @click="selectDifficulty(diff)"
-          >
-            {{ diffLabel(diff) }}
-          </button>
-        </div>
+      </div>
+
+      <!-- 难度选择 -->
+      <div class="flex gap-1 flex-wrap">
+        <button
+          v-for="diff in availableDiffs"
+          :key="diff"
+          class="diff-btn"
+          :class="{
+            active: selectedDiff === diff,
+            played: playedDiffs.includes(diff),
+          }"
+          @click="selectDifficulty(diff)"
+        >
+          {{ diffLabel(diff) }}
+          <span v-if="playedDiffs.includes(diff)" class="played-dot" />
+        </button>
       </div>
 
       <section class="chart-card">
@@ -34,12 +45,35 @@
         </div>
       </section>
 
+      <!-- 成绩摘要 -->
       <section class="chart-card">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="card-title mb-0">谱面笔记</h2>
-          <button class="save-btn" @click="handleSaveNote">保存笔记</button>
+        <h2 class="card-title">成绩摘要</h2>
+        <div class="score-summary-grid">
+          <div class="ss-item">
+            <span class="ss-label">最佳达成率</span>
+            <span class="ss-val grad-text">{{ bestAchievement }}%</span>
+          </div>
+          <div class="ss-item">
+            <span class="ss-label">最高 DX 分数</span>
+            <span class="ss-val">{{ bestDxScore }}</span>
+          </div>
+          <div class="ss-item">
+            <span class="ss-label">最高 DX Rating</span>
+            <span class="ss-val">{{ bestDxRating }}</span>
+          </div>
+          <div class="ss-item">
+            <span class="ss-label">游玩次数</span>
+            <span class="ss-val">{{ historyRecords.length }}</span>
+          </div>
+          <div class="ss-item">
+            <span class="ss-label">最新评级</span>
+            <span class="ss-val rate-badge">{{ latestRate || '-' }}</span>
+          </div>
+          <div class="ss-item">
+            <span class="ss-label">最新连击</span>
+            <span class="ss-val">{{ latestFc }}</span>
+          </div>
         </div>
-        <MarkdownEditor v-model="noteContent" placeholder="在此记录机况、手法心得或读谱笔记..." />
       </section>
     </template>
     <div v-else class="flex items-center justify-center h-full text-text-muted text-sm">
@@ -49,14 +83,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { db } from '@/services/db';
 import SongHistoryChart from '@/components/charts/SongHistoryChart.vue';
 import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
-import MarkdownEditor from '@/components/notes/MarkdownEditor.vue';
 import { DIFFICULTY_LIST, type DifficultyType } from '@/types/song';
 
 const props = defineProps<{ songId?: number | null }>();
@@ -70,7 +103,34 @@ const songId = computed(() => props.songId ?? Number(route.params.songId));
 const song = computed(() => songStore.getSong(songId.value));
 const selectedDiff = ref<DifficultyType>('master');
 const historyRecords = ref<any[]>([]);
-const noteContent = ref('');
+/** 用户实际打过的难度列表（用于智能默认选择） */
+const playedDiffs = ref<DifficultyType[]>([]);
+
+// ---- 成绩摘要计算 ----
+const bestAchievement = computed(() => {
+  if (historyRecords.value.length === 0) return '-';
+  return Math.max(...historyRecords.value.map(r => r.achievements)).toFixed(4);
+});
+const bestDxScore = computed(() => {
+  if (historyRecords.value.length === 0) return '-';
+  const scores = historyRecords.value.map(r => r.dxScore);
+  return scores.length > 0 ? Math.max(...scores) : '-';
+});
+const bestDxRating = computed(() => {
+  if (historyRecords.value.length === 0) return '-';
+  const valid = historyRecords.value.filter(r => r.dxRating != null);
+  return valid.length > 0 ? Math.max(...valid.map(r => r.dxRating!)) : '-';
+});
+const latestRate = computed(() => {
+  if (historyRecords.value.length === 0) return null;
+  return historyRecords.value[historyRecords.value.length - 1].rate || null;
+});
+const latestFc = computed(() => {
+  if (historyRecords.value.length === 0) return '-';
+  const fc = historyRecords.value[historyRecords.value.length - 1].fcStatus;
+  const map: Record<string, string> = { ap: 'AP', fcp: 'FC+', fc: 'FC' };
+  return (map[fc] ?? fc) || '-';
+});
 
 const availableDiffs = computed(() => {
   const s = song.value;
@@ -84,15 +144,49 @@ const availableDiffs = computed(() => {
   });
 });
 
+/**
+ * 智能加载：先探测用户打过哪些难度，优先选有记录的；
+ * 如果都没打过，回退到第一个有定数的难度（至少能看到曲目信息）
+ */
+async function autoLoadSongData() {
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
+
+  // 1) 探测已打过的难度
+  const allRecords = await db.playLogs
+    .where('songId')
+    .equals(sid)
+    .toArray();
+  const diffSet = new Set(allRecords.map(r => r.difficulty as DifficultyType));
+  playedDiffs.value = DIFFICULTY_LIST.filter(d => diffSet.has(d));
+
+  // 2) 选默认难度：优先有记录的 → 否则第一个可用难度
+  const avail = availableDiffs.value;
+  if (playedDiffs.value.length > 0) {
+    // 有记录：优先 master > remaster > expert > advanced > basic
+    const priority: DifficultyType[] = ['master', 'remaster', 'expert', 'advanced', 'basic'];
+    const best = priority.find(d => playedDiffs.value.includes(d));
+    selectedDiff.value = best ?? playedDiffs.value[0];
+  } else if (avail.length > 0) {
+    // 无记录：选最高难度（通常 master 或 remaster 最有参考价值）
+    selectedDiff.value = avail[avail.length - 1];
+  }
+
+  // 3) 加载选中难度的数据
+  await loadDiffData(selectedDiff.value);
+}
+
 async function selectDifficulty(d: DifficultyType) {
   const sid = songId.value;
   if (isNaN(sid) || sid <= 0) return;
   selectedDiff.value = d;
+  await loadDiffData(d);
+}
+
+async function loadDiffData(d: DifficultyType) {
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
   historyRecords.value = await playLogStore.getSongHistory(sid, d);
-  try {
-    const note = await db.songNotes.get([sid, d]);
-    noteContent.value = note?.content ?? '';
-  } catch { noteContent.value = ''; }
 }
 
 function diffLabel(d: DifficultyType): string {
@@ -100,32 +194,52 @@ function diffLabel(d: DifficultyType): string {
   return map[d] ?? d.toUpperCase();
 }
 
-async function handleSaveNote() {
-  const sid = songId.value;
-  if (isNaN(sid) || sid <= 0) return;
-  try {
-    await db.songNotes.put({
-      songId: sid,
-      difficulty: selectedDiff.value,
-      content: noteContent.value,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (e) { /* ignore */ }
-}
-
 onMounted(async () => {
   if (songStore.songs.size === 0) {
     await songStore.loadFromDB();
   }
-  await selectDifficulty(selectedDiff.value);
+  await autoLoadSongData();
+});
+
+// ⚠️ v-if tab 切换时组件不会重新挂载，watch songId 变化来重新加载
+watch(songId, async (newId) => {
+  if (!isNaN(newId) && newId > 0) {
+    await autoLoadSongData();
+  }
 });
 </script>
 
 <style scoped>
+/* 返回按钮 */
+.back-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-smooth);
+}
+.back-btn:hover {
+  background: white;
+  border-color: rgba(74,114,255,0.2);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(-2px);
+}
+
 .chart-card {
-  background-color: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--bg-card);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  border-top: 1px solid rgba(255,255,255,0.9);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
 }
 
 .card-title {
@@ -136,58 +250,72 @@ onMounted(async () => {
 }
 
 .diff-btn {
-  padding: 4px 10px;
-  border-radius: 4px;
+  position: relative;
+  padding: 5px 12px;
+  border-radius: 8px;
   font-size: 11px;
-  font-weight: 500;
-  border: 1px solid var(--bg-hover);
-  background-color: transparent;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  backdrop-filter: blur(8px);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--transition-fast);
 }
 
 .diff-btn:hover {
-  background-color: var(--bg-hover);
+  background: white;
+  border-color: rgba(74,114,255,0.2);
   color: var(--text-primary);
 }
 
 .diff-btn.active {
-  background-color: var(--color-primary);
+  background: var(--color-primary);
   border-color: var(--color-primary);
   color: white;
+  box-shadow: 0 2px 10px rgba(74,114,255,0.25);
 }
 
-.note-editor {
-  width: 100%;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--bg-hover);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 13px;
-  color: var(--text-primary);
-  outline: none;
-  resize: vertical;
-  font-family: inherit;
-  line-height: 1.5;
+/* 已游玩过的难度：边框高亮 */
+.diff-btn.played {
+  border-color: rgba(16,185,129,0.35);
 }
 
-.note-editor:focus {
+.diff-btn.played.active {
   border-color: var(--color-primary);
 }
 
-.save-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  border: 1px solid var(--color-primary);
-  background-color: transparent;
-  color: var(--color-primary);
-  cursor: pointer;
-  transition: background-color 0.15s;
+.played-dot {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(16,185,129,0.5);
 }
 
-.save-btn:hover {
-  background-color: rgba(99, 102, 241, 0.1);
+/* ===== 成绩摘要 ===== */
+.score-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.ss-item {
+  text-align: center;
+  padding: 12px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-body);
+  transition: background 0.2s ease;
+}
+.ss-item:hover { background: white; }
+.ss-label { display: block; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+.ss-val { display: block; font-size: 20px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
+.rate-badge {
+  display: inline-block;
+  padding: 2px 10px; border-radius: 6px;
+  background: rgba(74,114,255,0.1); color: var(--color-primary);
+  font-size: 14px;
 }
 </style>

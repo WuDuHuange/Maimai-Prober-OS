@@ -17,9 +17,17 @@ export const useAIChatStore = defineStore('aiChat', () => {
     }
   }
 
+  /** 追加思考链内容到最新一条助手消息 */
+  function appendThinking(text: string) {
+    const last = messages.value[messages.value.length - 1];
+    if (last && last.role === 'assistant') {
+      last.thinking = (last.thinking ?? '') + text;
+    }
+  }
+
   function clearMessages() {
     messages.value = [];
   }
 
-  return { messages, isStreaming, addMessage, appendToLastMessage, clearMessages };
+  return { messages, isStreaming, addMessage, appendToLastMessage, appendThinking, clearMessages };
 });

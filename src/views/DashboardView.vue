@@ -23,8 +23,8 @@
     </div>
 
     <!-- B50 Card Grid -->
-    <div id="b50-section" class="card-static">
-      <div class="flex items-center justify-between mb-3">
+    <div id="b50-section" class="card-static p-5">
+      <div class="flex items-center justify-between mb-4">
         <span class="section-title-sm">Best 50 排名</span>
         <span class="text-xs text-text-muted">Rating 贡献排序 · 悬停查看详情</span>
       </div>
@@ -41,39 +41,49 @@
     </div>
 
     <!-- Weekly Report -->
-    <div id="weekly-section" class="card-static">
-      <div class="flex items-center justify-between mb-3">
-        <div>
+    <div id="weekly-section" class="card-static p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
           <span class="section-title-sm">极客周报</span>
-          <span class="text-xs text-text-muted ml-2">{{ weekRange }}</span>
+          <span class="text-xs text-text-muted">{{ weekRange }}</span>
         </div>
-        <span class="text-lg text-text-muted cursor-pointer">&gt;</span>
+        <span class="text-lg text-text-muted cursor-pointer flex items-center">&gt;</span>
       </div>
       <div class="grid grid-cols-5 gap-3">
         <div class="weekly-stat-card">
           <div class="ws-icon blue">P</div>
-          <span class="ws-label">游玩次数</span>
-          <span class="ws-val">{{ weeklyStats.plays }}</span>
+          <div class="ws-content">
+            <span class="ws-label">游玩次数</span>
+            <span class="ws-val">{{ weeklyStats.plays }}</span>
+          </div>
         </div>
         <div class="weekly-stat-card">
           <div class="ws-icon cyan">N</div>
-          <span class="ws-label">新增谱面</span>
-          <span class="ws-val">{{ weeklyStats.newSongs }}</span>
+          <div class="ws-content">
+            <span class="ws-label">新增谱面</span>
+            <span class="ws-val">{{ weeklyStats.newSongs }}</span>
+          </div>
         </div>
         <div class="weekly-stat-card">
           <div class="ws-icon purple">S</div>
-          <span class="ws-label">单曲最高</span>
-          <span class="ws-val">{{ weeklyStats.bestScore.toFixed(1) }}%</span>
+          <div class="ws-content">
+            <span class="ws-label">单曲最高</span>
+            <span class="ws-val">{{ weeklyStats.bestScore.toFixed(2) }}%</span>
+          </div>
         </div>
         <div class="weekly-stat-card">
           <div class="ws-icon yellow">R</div>
-          <span class="ws-label">Rating 变动</span>
-          <span class="ws-val rating-up">+{{ weeklyStats.ratingChange.toFixed(0) }}</span>
+          <div class="ws-content">
+            <span class="ws-label">Rating 变动</span>
+            <span class="ws-val rating-up">+{{ weeklyStats.ratingChange.toFixed(0) }}</span>
+          </div>
         </div>
         <div class="weekly-stat-card">
           <div class="ws-icon green">A</div>
-          <span class="ws-label">平均达成率</span>
-          <span class="ws-val">{{ weeklyStats.avgAch.toFixed(1) }}%</span>
+          <div class="ws-content">
+            <span class="ws-label">平均达成</span>
+            <span class="ws-val">{{ weeklyStats.avgAch.toFixed(2) }}%</span>
+          </div>
         </div>
       </div>
     </div>
@@ -232,31 +242,35 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 16px 8px;
+  justify-content: space-between;
+  padding: 16px 12px 14px;
+  min-height: 120px;
   background: var(--bg-body);
   border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.3s ease;
+              box-shadow 0.3s ease, background 0.3s ease;
   cursor: default;
 }
 .weekly-stat-card:hover {
-  transform: translateY(-4px) scale(1.03);
-  box-shadow: 0 12px 32px rgba(44, 76, 160, 0.08);
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 16px 40px rgba(44, 76, 160, 0.08);
+  border-color: rgba(255, 255, 255, 0.8);
   background: white;
 }
 
 .ws-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
   box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+  margin-bottom: auto;
 }
 
 .ws-icon.blue   { background: linear-gradient(135deg, #4A72FF 0%, #7B9AFF 100%); box-shadow: 0 3px 12px rgba(74,114,255,0.25); }
@@ -265,8 +279,16 @@ onMounted(async () => {
 .ws-icon.yellow { background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%); box-shadow: 0 3px 12px rgba(245,158,11,0.25); }
 .ws-icon.green  { background: linear-gradient(135deg, #10B981 0%, #34D399 100%); box-shadow: 0 3px 12px rgba(16,185,129,0.25); }
 
-.ws-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
-.ws-val { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: var(--letter-spacing-tight); }
+.ws-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 12px;
+}
+
+.ws-label { font-size: 11px; color: var(--text-muted); font-weight: 500; letter-spacing: -0.01em; white-space: nowrap; }
+.ws-val { font-size: 18px; font-weight: 800; color: var(--text-primary); letter-spacing: var(--letter-spacing-tight); line-height: 1; }
 .ws-val.rating-up { color: var(--color-success); }
 
 /* ===== FAB Bar — 浮动操作栏 ===== */

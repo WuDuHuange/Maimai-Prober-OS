@@ -41,7 +41,6 @@ const navItems = [
   { key: 'overview', label: '总览' },
   { key: 'dashboard', label: '数据看板' },
   { key: 'songs', label: '歌曲库' },
-  { key: 'notes', label: '谱面笔记' },
   { key: 'ai', label: 'AI复盘' },
   { key: 'settings', label: '设置' },
 ];
