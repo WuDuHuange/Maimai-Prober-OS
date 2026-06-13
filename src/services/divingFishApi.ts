@@ -8,7 +8,6 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     ...(optHeaders as Record<string, string> || {}),
   };
   const resp = await fetch(`${API_BASE}${endpoint}`, {
-    credentials: 'include',
     headers: mergedHeaders,
     ...restOpts,
   });

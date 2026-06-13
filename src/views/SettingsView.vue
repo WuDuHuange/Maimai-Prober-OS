@@ -264,7 +264,6 @@ async function doLogin() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username.value.trim(), password: password.value.trim() }),
-      credentials: 'include',
     });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
@@ -283,7 +282,7 @@ async function doLogin() {
 
 function logout() {
   localStorage.removeItem('jwt_user');
-  fetch(`${API_BASE}/login`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
+  fetch(`${API_BASE}/login`, { method: 'DELETE' }).catch(() => {});
   jwtStatus.value = { text: '已登出', color: 'text-muted' };
 }
 
