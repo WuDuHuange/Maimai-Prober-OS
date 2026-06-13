@@ -112,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { encrypt, decrypt } from '@/services/cryptoService';
 import { API_BASE } from '@/types/sync';
 import {
@@ -165,8 +165,6 @@ const providerDefs: { key: AIProvider; label: string; desc: string }[] = [
 const configuredProviders = computed(() =>
   providerDefs.filter(p => !!localStorage.getItem(`ai_key_${p.key}`.replace('ai_key_', p.key === 'gemini' ? 'gemini_key_enc' : p.key === 'openai' ? 'openai_key_enc' : p.key === 'deepseek' ? 'deepseek_key_enc' : 'claude_key_enc')))
 );
-
-const currentPresets = computed(() => getPresetsForProvider(activeProvider.value));
 
 function selectProvider(p: AIProvider) {
   activeProvider.value = p;

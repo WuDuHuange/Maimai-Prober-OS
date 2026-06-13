@@ -155,7 +155,7 @@ const sortBy = ref<'title' | 'constant' | 'bpm' | 'newest'>('constant');
 const pageSize = 30;
 const displayCount = ref(pageSize);
 
-const sortOptions = [
+const sortOptions: { key: 'title' | 'constant' | 'bpm' | 'newest'; label: string }[] = [
   { key: 'constant', label: '定数' },
   { key: 'title', label: '曲名' },
   { key: 'bpm', label: 'BPM' },

@@ -102,7 +102,6 @@ export function removeAIConfig(provider: AIProvider) {
 }
 
 // ---- API 调用 ----
-interface ChatPart { text: string }
 
 async function callGeminiStream(
   config: AIConfig,
@@ -332,7 +331,6 @@ async function callClaudeStream(
 
 /** 测试 AI 连接 */
 export async function testAIConnection(provider: AIProvider, apiKey: string, model: string): Promise<{ ok: boolean; message: string }> {
-  const config: AIConfig = { provider, apiKey, model };
   const testPrompt = '请回复"OK"';
 
   try {
