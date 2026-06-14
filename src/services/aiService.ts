@@ -298,9 +298,15 @@ export async function agentChat(
   const config = getActiveAIConfig();
   if (!config) throw new Error('请先配置 AI 服务');
 
-  // 只支持 Gemini 的 Function Calling（OpenAI 需要不同格式）
+  // 只支持 Gemini 的 Function Calling
   if (config.provider !== 'gemini') {
-    // 回退到普通流式
+    await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
+    return;
+  }
+
+  // Gemma 模型不完全支持 Function Calling → 回退
+  if (config.model.includes('gemma')) {
+    console.warn('[Agent] Gemma 模型不支持 Function Calling，回退到普通模式');
     await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
     return;
   }
@@ -334,9 +340,13 @@ export async function agentChat(
 
     const data = await resp.json();
     const candidate = data.candidates?.[0];
-    if (!candidate) throw new Error('AI 返回为空');
+    if (!candidate) {
+      console.error('[Agent] 无候选:', JSON.stringify(data).slice(0, 300));
+      throw new Error('AI 返回为空');
+    }
 
     const parts = candidate.content?.parts || [];
+    console.log('[Agent] 第', turn + 1, '轮响应 parts:', parts.map((p: any) => Object.keys(p)).join(','));
 
     // 检查是否有 functionCall
     const funcCalls = parts.filter((p: any) => p.functionCall);
@@ -345,19 +355,25 @@ export async function agentChat(
     if (funcCalls.length > 0) {
       // 处理工具调用
       const funcCall = funcCalls[0].functionCall as ToolCall;
+      console.log('[Agent] 第', turn + 1, '轮 → functionCall:', funcCall.name, funcCall.args);
       callbacks.onToolCall?.(funcCall.name);
 
       // 执行工具
       const result = await executeToolCall(funcCall);
 
-      // 追加到对话历史
+      // 追加到对话历史（role 必须是 'function'，不是 'user'）
       contents.push({
         role: 'model',
         parts: [{ functionCall: funcCall }],
       });
       contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name: funcCall.name, response: { content: result } } }],
+        role: 'function',
+        parts: [{
+          functionResponse: {
+            name: funcCall.name,
+            response: { name: funcCall.name, content: result },
+          },
+        }],
       });
 
       // 继续循环
