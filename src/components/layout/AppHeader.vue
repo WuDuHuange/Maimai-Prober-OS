@@ -74,14 +74,6 @@ function onFileChange(e: Event) {
   reader.readAsDataURL(file);
 }
 
-const props = defineProps<{
-  modelValue: string;
-  syncStatus: 'idle' | 'syncing' | 'completed' | 'error';
-  userName?: string;
-}>();
-
-defineEmits<{ 'update:modelValue': [key: string] }>();
-
 const navItems = [
   { key: 'overview', label: '总览' },
   { key: 'dashboard', label: '数据看板' },
