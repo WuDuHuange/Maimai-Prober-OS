@@ -17,7 +17,7 @@ export function useAICoach() {
   const playerStore = usePlayerStore();
   const b50Store = useB50Store();
 
-  /** 构建自动注入的轻量玩家数据上下文（每次对话都带） */
+  /** 构建自动注入的轻量玩家数据上下文 */
   function buildAutoContext(): string {
     const parts: string[] = [];
     parts.push(`[系统注入 — 当前玩家数据]`);
@@ -38,9 +38,33 @@ export function useAICoach() {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    // 自动上下文：手打消息时注入轻量数据；按钮触发时用完整上下文
+    // ===== 组装多轮对话上下文 =====
+    const segments: string[] = [];
+
+    // 1) 核心记忆（AI 定期总结的长期目标）
+    if (chatStore.summaryMemory) {
+      segments.push(`[核心记忆 — 你的长期目标]\n${chatStore.summaryMemory}`);
+    }
+
+    // 2) 对话历史（滑动窗口，最近 6 条）
+    const history = chatStore.getRecentHistory(6);
+    if (history.length > 0) {
+      segments.push(
+        `[对话历史]\n` +
+        history.map(h => `${h.role === 'user' ? '玩家' : 'AI教练'}: ${h.content}`).join('\n')
+      );
+    }
+
+    // 3) 玩家数据上下文（自动 + 手动）
     const autoCtx = context ? '' : buildAutoContext();
-    const userMessage = [autoCtx, context, userInput].filter(Boolean).join('\n\n');
+    if (autoCtx || context) {
+      segments.push([autoCtx, context].filter(Boolean).join('\n\n'));
+    }
+
+    // 4) 当前消息
+    segments.push(`[当前消息]\n${userInput}`);
+
+    const userMessage = segments.join('\n\n---\n\n');
 
     chatStore.addMessage({ role: 'user', content: userInput });
     chatStore.addMessage({ role: 'assistant', content: '', thinking: '' });
@@ -57,6 +81,38 @@ export function useAICoach() {
       chatStore.addMessage({ role: 'assistant', content: `❌ 错误: ${err.message}` });
     } finally {
       chatStore.isStreaming = false;
+    }
+
+    // 每 4 轮对话后，触发后台记忆总结
+    const userMsgCount = chatStore.messages.filter(m => m.role === 'user').length;
+    if (userMsgCount > 0 && userMsgCount % 4 === 0) {
+      triggerSummaryUpdate();
+    }
+  }
+
+  /** 后台触发 AI 总结当前对话目标，更新核心记忆 */
+  async function triggerSummaryUpdate() {
+    const history = chatStore.getRecentHistory(8);
+    if (history.length === 0) return;
+    const prompt = [
+      `[后台任务] 请根据以下对话历史，用 1-2 句话总结玩家当前的练习目标、偏好和状态。`,
+      `只输出总结，不要加任何前缀或解释。`,
+      ``,
+      history.map(h => `${h.role === 'user' ? '玩家' : 'AI'}: ${h.content}`).join('\n'),
+    ].join('\n');
+
+    try {
+      const result = await streamAIChat(
+        '你是一个总结助手。只输出1-2句中文总结，不要加前缀。',
+        prompt,
+        () => {}, // 静默更新，不推送到聊天
+        () => {}
+      );
+      if (result?.trim()) {
+        chatStore.setSummaryMemory(result.trim());
+      }
+    } catch {
+      // 总结失败不影响主流程
     }
   }
 

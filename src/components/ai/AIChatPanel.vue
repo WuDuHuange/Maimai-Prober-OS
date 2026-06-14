@@ -7,6 +7,12 @@
         <p class="text-text-muted text-xs mt-1">点击"请求教练分析"或直接输入问题</p>
       </div>
 
+      <!-- 核心记忆指示器 -->
+      <div v-if="chatStore.summaryMemory" class="memory-indicator">
+        <span class="memory-icon">🧠</span>
+        <span class="memory-text">{{ chatStore.summaryMemory }}</span>
+      </div>
+
       <div v-for="(msg, i) in chatStore.messages" :key="i" class="message-row" :class="msg.role">
         <div class="message-bubble" :class="msg.role">
           <div class="message-label">{{ msg.role === 'user' ? '你' : 'AI 教练' }}</div>
@@ -45,13 +51,23 @@
 
     <!-- 输入区域 -->
     <div class="input-area">
-      <button
-        class="coach-btn"
-        :disabled="chatStore.isStreaming"
-        @click="$emit('coach')"
-      >
-        请求教练分析
-      </button>
+      <div class="flex gap-2 mb-2">
+        <button
+          class="coach-btn"
+          :disabled="chatStore.isStreaming"
+          @click="$emit('coach')"
+        >
+          请求教练分析
+        </button>
+        <button
+          v-if="chatStore.messages.length > 0"
+          class="clear-memory-btn"
+          @click="chatStore.clearMessages()"
+          title="清空对话与记忆"
+        >
+          🗑
+        </button>
+      </div>
       <div class="flex gap-2 mt-2">
         <input
           v-model="inputText"
@@ -363,6 +379,25 @@ watch(
 .markdown-body :deep(th) { background: var(--bg-body); font-weight: 700; }
 .markdown-body :deep(hr) { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
 .markdown-body :deep(a) { color: var(--color-primary); text-decoration: underline; }
+
+/* ===== 核心记忆指示器 ===== */
+.memory-indicator {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 8px 10px; margin-bottom: 8px;
+  background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.15);
+  border-radius: 8px; font-size: 11px; line-height: 1.5;
+}
+.memory-icon { flex-shrink: 0; font-size: 14px; }
+.memory-text { color: var(--text-secondary); }
+
+/* ===== 清空按钮 ===== */
+.clear-memory-btn {
+  padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card); font-size: 14px;
+  cursor: pointer; transition: all var(--transition-fast);
+}
+.clear-memory-btn:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
 
 /* ===== 思考链 ===== */
 .thinking-section {

@@ -50,13 +50,16 @@
     </div>
 
     <div class="network-status">
-      <span class="net-dot" /> 本地数据库就绪 ({{ syncedCount }} 条记录)
+      <span class="net-dot" :class="{ offline: !network.isOnline.value }" />
+      {{ network.isOnline.value ? '在线' : '离线' }}
+      · 本地 {{ syncedCount }} 条记录
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import { useNetwork } from '@vueuse/core';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
@@ -65,6 +68,7 @@ import { getCoverUrl } from '@/types/sync';
 
 defineEmits<{ sync: [] }>();
 
+const network = useNetwork();
 const syncStore = useSyncStore();
 const songStore = useSongStore();
 const playLogStore = usePlayLogStore();
@@ -321,11 +325,14 @@ function goSong(_id: number) { sq.value = ''; results.value = []; }
 }
 
 .net-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 8px; height: 8px; border-radius: 50%;
   background: var(--color-success);
   animation: breathe 2s infinite;
+  display: inline-block; vertical-align: middle; margin-right: 4px;
+}
+.net-dot.offline {
+  background: var(--color-danger);
+  animation: none;
 }
 
 @keyframes breathe {
