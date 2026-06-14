@@ -38,9 +38,56 @@
         </div>
       </section>
 
+      <!-- 判定补充 + 趋势 -->
       <section class="chart-card">
-        <h2 class="card-title">判定偏差趋势</h2>
-        <div class="h-[200px]">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="card-title mb-0">判定偏差趋势</h2>
+          <button class="toggle-judge-btn" @click="showJudgeForm = !showJudgeForm">
+            {{ showJudgeForm ? '收起' : '✏️ 补充判定数据' }}
+          </button>
+        </div>
+
+        <!-- 判定表单 -->
+        <div v-if="showJudgeForm" class="judge-form">
+          <p class="judge-form-hint">从官方舞萌 DX 小程序对照填入判定明细（非必填，填你有数据的 note 即可）</p>
+          <div class="judge-grid">
+            <div v-for="nt in (['tap','hold','slide','touch','break'] as NoteType[])" :key="nt" class="judge-note-block">
+              <span class="judge-note-label">{{ NOTE_TYPE_LABEL[nt] }}</span>
+              <div class="judge-fields">
+                <label class="jf"><span>P</span><input v-model.number="judgeForm[nt].perfect" type="number" min="0" class="jf-input" /></label>
+                <label class="jf"><span>Gr</span><input v-model.number="judgeForm[nt].great" type="number" min="0" class="jf-input" /></label>
+                <label class="jf"><span>Gd</span><input v-model.number="judgeForm[nt].good" type="number" min="0" class="jf-input" /></label>
+                <label class="jf"><span>M</span><input v-model.number="judgeForm[nt].miss" type="number" min="0" class="jf-input" /></label>
+              </div>
+            </div>
+          </div>
+          <div class="judge-global">
+            <label class="jf"><span>Fast</span><input v-model.number="judgeForm.fast" type="number" min="0" class="jf-input" /></label>
+            <label class="jf"><span>Late</span><input v-model.number="judgeForm.late" type="number" min="0" class="jf-input" /></label>
+          </div>
+          <button class="save-judge-btn" @click="handleSaveJudge">💾 保存判定数据</button>
+          <p v-if="judgeSavedMsg" class="judge-saved-msg">{{ judgeSavedMsg }}</p>
+
+          <!-- 判定摘要 -->
+          <div v-if="judgeSummary" class="judge-summary mt-3">
+            <div class="judge-summary-title">📊 判定概览（总 Notes: {{ judgeSummary.totalNotes }} | Fast: {{ judgeSummary.fast }} | Late: {{ judgeSummary.late }}）</div>
+            <div class="judge-summary-bars">
+              <div v-for="n in judgeSummary.notes" :key="n.type" class="jsb-row">
+                <span class="jsb-label">{{ n.label }}</span>
+                <div class="jsb-bar-wrap">
+                  <div class="jsb-bar jsb-p" :style="{ width: (n.perfect / Math.max(n.total,1) * 100) + '%' }" />
+                  <div class="jsb-bar jsb-gr" :style="{ width: (n.great / Math.max(n.total,1) * 100) + '%' }" />
+                  <div class="jsb-bar jsb-gd" :style="{ width: (n.good / Math.max(n.total,1) * 100) + '%' }" />
+                  <div class="jsb-bar jsb-m" :style="{ width: (n.miss / Math.max(n.total,1) * 100) + '%' }" />
+                </div>
+                <span class="jsb-acc">{{ n.acc }}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 散点图（有判定数据时显示） -->
+        <div v-else class="h-[200px]">
           <JudgeScatterChart :records="historyRecords" />
         </div>
       </section>
@@ -90,7 +137,8 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { db } from '@/services/db';
 import SongHistoryChart from '@/components/charts/SongHistoryChart.vue';
 import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
-import { DIFFICULTY_LIST, type DifficultyType } from '@/types/song';
+import { DIFFICULTY_LIST, type DifficultyType, type NoteType, NOTE_TYPE_LABEL, type JudgeDetail, emptyJudgeDetail, calcJudgeSummary } from '@/types/song';
+import { getOrCreateJudgeDetail, saveJudgeDetail } from '@/services/judgeStorage';
 
 const props = defineProps<{ songId?: number | null }>();
 defineEmits<{ back: [] }>();
@@ -105,6 +153,34 @@ const selectedDiff = ref<DifficultyType>('master');
 const historyRecords = ref<any[]>([]);
 /** 用户实际打过的难度列表（用于智能默认选择） */
 const playedDiffs = ref<DifficultyType[]>([]);
+
+// ---- 判定补充表单 ----
+const showJudgeForm = ref(false);
+const judgeForm = ref<JudgeDetail>(emptyJudgeDetail());
+const judgeSavedMsg = ref('');
+
+const judgeSummary = computed(() => {
+  const jd = judgeForm.value;
+  const hasData = (['tap', 'hold', 'slide', 'touch', 'break'] as NoteType[]).some(
+    t => jd[t].perfect > 0 || jd[t].great > 0 || jd[t].good > 0 || jd[t].miss > 0
+  );
+  return hasData ? calcJudgeSummary(jd) : null;
+});
+
+async function loadJudgeData() {
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
+  judgeForm.value = await getOrCreateJudgeDetail(sid, selectedDiff.value);
+  judgeSavedMsg.value = '';
+}
+
+async function handleSaveJudge() {
+  const sid = songId.value;
+  if (isNaN(sid) || sid <= 0) return;
+  await saveJudgeDetail(sid, selectedDiff.value, judgeForm.value);
+  judgeSavedMsg.value = '已保存 ✓';
+  setTimeout(() => { judgeSavedMsg.value = ''; }, 2000);
+}
 
 // ---- 成绩摘要计算 ----
 const bestAchievement = computed(() => {
@@ -174,6 +250,7 @@ async function autoLoadSongData() {
 
   // 3) 加载选中难度的数据
   await loadDiffData(selectedDiff.value);
+  await loadJudgeData();
 }
 
 async function selectDifficulty(d: DifficultyType) {
@@ -181,6 +258,7 @@ async function selectDifficulty(d: DifficultyType) {
   if (isNaN(sid) || sid <= 0) return;
   selectedDiff.value = d;
   await loadDiffData(d);
+  await loadJudgeData();
 }
 
 async function loadDiffData(d: DifficultyType) {
@@ -318,4 +396,62 @@ watch(songId, async (newId) => {
   background: rgba(74,114,255,0.1); color: var(--color-primary);
   font-size: 14px;
 }
+
+/* ===== 判定表单 ===== */
+.toggle-judge-btn {
+  padding: 4px 12px; border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-body); font-size: 11px; font-weight: 600;
+  color: var(--color-primary); cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.toggle-judge-btn:hover { background: rgba(74,114,255,0.06); border-color: rgba(74,114,255,0.2); }
+
+.judge-form { margin-top: 8px; }
+.judge-form-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
+
+.judge-grid { display: flex; flex-direction: column; gap: 8px; }
+.judge-note-block { display: flex; align-items: center; gap: 10px; }
+.judge-note-label {
+  min-width: 44px; font-size: 11px; font-weight: 700;
+  color: var(--text-secondary); text-align: right;
+}
+.judge-fields { display: flex; gap: 4px; }
+.jf { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.jf span { font-size: 9px; color: var(--text-muted); font-weight: 600; }
+.jf-input {
+  width: 48px; padding: 3px 4px; border-radius: 4px;
+  border: 1px solid var(--border-color); background: var(--bg-body);
+  font-size: 12px; text-align: center; color: var(--text-primary);
+  outline: none; transition: border-color var(--transition-fast);
+}
+.jf-input:focus { border-color: var(--color-primary); }
+
+.judge-global { display: flex; gap: 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+
+.save-judge-btn {
+  margin-top: 10px; padding: 7px 20px; border-radius: 8px;
+  border: none; background: var(--color-primary); color: white;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.save-judge-btn:hover { background: var(--color-primary-dark); }
+.judge-saved-msg { font-size: 11px; color: var(--color-success); margin-top: 4px; }
+
+/* 判定摘要条 */
+.judge-summary { background: var(--bg-body); border-radius: var(--radius-sm); padding: 12px; }
+.judge-summary-title { font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
+.judge-summary-bars { display: flex; flex-direction: column; gap: 5px; }
+.jsb-row { display: flex; align-items: center; gap: 8px; }
+.jsb-label { font-size: 10px; font-weight: 600; color: var(--text-muted); min-width: 36px; }
+.jsb-bar-wrap {
+  flex: 1; height: 10px; border-radius: 5px; overflow: hidden;
+  background: rgba(139,155,180,0.1); display: flex;
+}
+.jsb-bar { height: 100%; transition: width 0.3s ease; }
+.jsb-p  { background: #10B981; }
+.jsb-gr { background: #F59E0B; }
+.jsb-gd { background: #EF4444; }
+.jsb-m  { background: #6B7280; }
+.jsb-acc { font-size: 10px; font-weight: 700; color: var(--text-primary); min-width: 40px; text-align: right; }
 </style>
