@@ -3,7 +3,11 @@
     <!-- Player Card -->
     <div class="card player-card">
       <div class="flex items-start gap-4">
-        <div class="avatar-lg" />
+        <div class="avatar-lg-wrap" @click="triggerAvatarUpload" title="点击上传头像">
+          <img v-if="playerStore.avatarUrl" :src="playerStore.avatarUrl" class="avatar-lg-img" />
+          <div v-else class="avatar-lg-placeholder">{{ playerStore.playerName.charAt(0) }}</div>
+        </div>
+        <input ref="avatarInput" type="file" accept="image/*" class="hidden-input" @change="onAvatarFile" />
         <div class="flex-1">
           <div class="flex items-center gap-2">
             <span class="text-lg font-bold">{{ playerStore.playerName }}</span>
@@ -99,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
@@ -108,6 +112,32 @@ import B50CardGrid from '@/components/b50/B50CardGrid.vue';
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
 const b50Store = useB50Store();
+const avatarInput = ref<HTMLInputElement | null>(null);
+
+function triggerAvatarUpload() {
+  avatarInput.value?.click();
+}
+
+function onAvatarFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = 128;
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2; const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+      playerStore.setAvatar(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = reader.result as string;
+  };
+  reader.readAsDataURL(file);
+}
 
 const weekRange = computed(() => {
   const d = new Date();
@@ -188,14 +218,20 @@ onMounted(async () => {
   transform: translateY(-2px);
 }
 
-.avatar-lg {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
+.avatar-lg-wrap {
+  width: 60px; height: 60px; border-radius: 50%;
+  overflow: hidden; cursor: pointer; flex-shrink: 0;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.avatar-lg-wrap:hover { transform: scale(1.05); box-shadow: 0 4px 20px rgba(74,114,255,0.2); }
+.avatar-lg-img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-lg-placeholder {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-  flex-shrink: 0;
+  color: white; font-size: 24px; font-weight: 800;
   box-shadow: 0 4px 16px rgba(74, 114, 255, 0.2);
 }
+.hidden-input { display: none; }
 
 .rating-big {
   font-size: 40px;

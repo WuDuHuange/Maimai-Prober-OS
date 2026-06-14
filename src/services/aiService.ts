@@ -111,14 +111,21 @@ async function callGeminiStream(
   onThinking?: (text: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?key=${config.apiKey}&alt=sse`;
+  // Gemini API: 只用 contents，不重复 systemInstruction（避免某些模型忽略正文）
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?key=${config.apiKey}`;
+
+  // 单条消息：系统提示词 + 上下文数据 + 用户问题，清晰分隔
+  const combinedText = [
+    systemPrompt,
+    '---',
+    userMessage,
+  ].join('\n\n');
 
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: systemPrompt + '\n\n' + userMessage }] }],
-      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ parts: [{ text: combinedText }] }],
     }),
     signal,
   });

@@ -19,15 +19,60 @@
         <span class="badge-dot" />
       </div>
       <div class="user-info">
-        <div class="avatar" />
+        <div class="avatar-wrap" @click="triggerUpload" title="点击上传头像">
+          <img v-if="playerStore.avatarUrl" :src="playerStore.avatarUrl" class="avatar-img" />
+          <div v-else class="avatar-placeholder">{{ playerStore.playerName.charAt(0) }}</div>
+        </div>
         <span class="nickname">{{ userName }}</span>
+        <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFileChange" />
       </div>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import { usePlayerStore } from '@/stores/usePlayerStore';
+
+const props = defineProps<{
+  modelValue: string;
+  syncStatus: 'idle' | 'syncing' | 'completed' | 'error';
+  userName?: string;
+}>();
+
+defineEmits<{ 'update:modelValue': [key: string] }>();
+
+const playerStore = usePlayerStore();
+const fileInput = ref<HTMLInputElement | null>(null);
+
+function triggerUpload() {
+  fileInput.value?.click();
+}
+
+function onFileChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    // 缩放到 128x128
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = 128;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      // 居中裁剪
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+      playerStore.setAvatar(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = reader.result as string;
+  };
+  reader.readAsDataURL(file);
+}
 
 const props = defineProps<{
   modelValue: string;
@@ -197,12 +242,20 @@ const syncClass = computed(() => {
   background: var(--color-danger);
 }
 
-.avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+.avatar-wrap {
+  width: 30px; height: 30px; border-radius: 50%;
+  overflow: hidden; cursor: pointer;
+  flex-shrink: 0; position: relative;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
+.avatar-wrap:hover { transform: scale(1.1); box-shadow: 0 2px 12px rgba(74,114,255,0.2); }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-placeholder {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  color: white; font-size: 14px; font-weight: 800;
+}
+.hidden-input { display: none; }
 
 .user-info {
   display: flex;

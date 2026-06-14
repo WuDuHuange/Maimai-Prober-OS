@@ -112,4 +112,6 @@ export interface PlayerProfile {
   courseRank: number;
   classRank: number;
   trophy: { title: string; color: string };
+  /** base64 头像 data URL */
+  avatar?: string;
 }

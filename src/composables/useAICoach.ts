@@ -23,8 +23,9 @@ export function useAICoach() {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    const fullPrompt = context
-      ? SYSTEM_PROMPT + '\n\n' + context + '\n\n' + userInput
+    // userMessage = 纯数据/上下文 + 用户问题，systemPrompt 由 aiService 统一拼接
+    const userMessage = context
+      ? context + '\n\n' + userInput
       : userInput;
 
     chatStore.addMessage({ role: 'user', content: userInput });
@@ -34,7 +35,7 @@ export function useAICoach() {
     try {
       await streamAIChat(
         SYSTEM_PROMPT,
-        fullPrompt,
+        userMessage,
         (chunk) => chatStore.appendToLastMessage(chunk),
         (thinking) => chatStore.appendThinking(thinking)
       );
