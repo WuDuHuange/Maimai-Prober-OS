@@ -38,7 +38,7 @@ export function useAICoach() {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    const isAgent = config.provider === 'gemini';
+    const isAgent = config.provider === 'gemini' || config.provider === 'deepseek' || config.provider === 'openai';
 
     // ===== 组装上下文 =====
     const segments: string[] = [];

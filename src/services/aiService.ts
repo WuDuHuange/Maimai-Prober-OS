@@ -29,6 +29,8 @@ export const MODEL_PRESETS: ModelPreset[] = [
   // DeepSeek 系列
   { id: 'deepseek-chat', label: 'DeepSeek V3', provider: 'deepseek' },
   { id: 'deepseek-reasoner', label: 'DeepSeek R1', provider: 'deepseek' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek' },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (推荐)', provider: 'deepseek' },
   // Claude 系列
   { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', provider: 'claude' },
   { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku', provider: 'claude' },
@@ -298,18 +300,26 @@ export async function agentChat(
   const config = getActiveAIConfig();
   if (!config) throw new Error('请先配置 AI 服务');
 
-  // 只支持 Gemini 的 Function Calling
-  if (config.provider !== 'gemini') {
+  // Gemma 不支持 Function Calling
+  if (config.model.includes('gemma')) {
+    console.warn('[Agent] Gemma 不支持 Function Calling，回退');
     await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
     return;
   }
 
-  // Gemma 模型不完全支持 Function Calling → 回退
-  if (config.model.includes('gemma')) {
-    console.warn('[Agent] Gemma 模型不支持 Function Calling，回退到普通模式');
+  if (config.provider === 'gemini') {
+    await geminiAgentLoop(config, systemPrompt, userMessage, callbacks);
+  } else if (config.provider === 'deepseek' || config.provider === 'openai') {
+    await openAIAgentLoop(config, systemPrompt, userMessage, callbacks);
+  } else {
     await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
-    return;
   }
+}
+
+/** Gemini Function Calling Agent */
+async function geminiAgentLoop(
+  config: AIConfig, systemPrompt: string, userMessage: string, callbacks: AgentCallbacks
+) {
 
   // 构建对话历史
   const contents: any[] = [
@@ -394,6 +404,77 @@ export async function agentChat(
     }
 
     // 既没有文本也没有 functionCall → 异常
+    throw new Error('AI 返回异常：无文本也无工具调用');
+  }
+
+  throw new Error('工具调用超过最大轮次 (3)');
+}
+
+/** DeepSeek / OpenAI Function Calling Agent */
+async function openAIAgentLoop(
+  config: AIConfig, systemPrompt: string, userMessage: string, callbacks: AgentCallbacks
+) {
+  const endpoint = config.provider === 'openai'
+    ? 'https://api.openai.com/v1/chat/completions'
+    : 'https://api.deepseek.com/v1/chat/completions';
+
+  // OpenAI 格式工具
+  const tools = AI_TOOLS.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userMessage },
+  ];
+
+  for (let turn = 0; turn < 3; turn++) {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({ model: config.model, messages, tools }),
+      signal: callbacks.signal,
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Agent API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
+    }
+
+    const data = await resp.json();
+    const msg = data.choices?.[0]?.message;
+    if (!msg) throw new Error('AI 返回为空');
+
+    // 检查 tool_calls
+    if (msg.tool_calls?.length > 0) {
+      const tc = msg.tool_calls[0];
+      const funcName = tc.function.name;
+      const funcArgs = JSON.parse(tc.function.arguments || '{}');
+      console.log('[Agent] 第', turn + 1, '轮 → tool_call:', funcName, funcArgs);
+      callbacks.onToolCall?.(funcName);
+
+      const result = await executeToolCall({ name: funcName, args: funcArgs });
+
+      messages.push({ role: 'assistant', content: null, tool_calls: [tc] });
+      messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+      continue;
+    }
+
+    // 文本回复
+    if (msg.content) {
+      callbacks.onChunk(msg.content);
+      if (msg.reasoning_content) callbacks.onThinking?.(msg.reasoning_content);
+      return;
+    }
+
     throw new Error('AI 返回异常：无文本也无工具调用');
   }
 
