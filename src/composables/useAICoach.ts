@@ -38,31 +38,38 @@ export function useAICoach() {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    // ===== 组装多轮对话上下文 =====
+    const isAgent = config.provider === 'gemini';
+
+    // ===== 组装上下文 =====
     const segments: string[] = [];
 
-    // 1) 核心记忆（AI 定期总结的长期目标）
+    // 1) 核心记忆
     if (chatStore.summaryMemory) {
-      segments.push(`[核心记忆 — 你的长期目标]\n${chatStore.summaryMemory}`);
+      segments.push(`[核心记忆]\n${chatStore.summaryMemory}`);
     }
 
-    // 2) 对话历史（滑动窗口，最近 6 条）
+    // 2) 对话历史
     const history = chatStore.getRecentHistory(6);
     if (history.length > 0) {
       segments.push(
         `[对话历史]\n` +
-        history.map(h => `${h.role === 'user' ? '玩家' : 'AI教练'}: ${h.content}`).join('\n')
+        history.map(h => `${h.role === 'user' ? '玩家' : 'AI'}: ${h.content}`).join('\n')
       );
     }
 
-    // 3) 玩家数据上下文（自动 + 手动）
-    const autoCtx = context ? '' : buildAutoContext();
-    if (autoCtx || context) {
-      segments.push([autoCtx, context].filter(Boolean).join('\n\n'));
+    // 3) 数据上下文：Agent 模式不注入（AI 自己调工具）; 回退模式注入静态文本
+    if (!isAgent) {
+      const autoCtx = context ? '' : buildAutoContext();
+      if (autoCtx || context) {
+        segments.push([autoCtx, context].filter(Boolean).join('\n\n'));
+      }
+    } else if (context) {
+      // Agent 模式下仍可接受显式 context（如 coachAnalysis 的完整数据）
+      segments.push(context);
     }
 
     // 4) 当前消息
-    segments.push(`[当前消息]\n${userInput}`);
+    segments.push(userInput);
 
     const userMessage = segments.join('\n\n---\n\n');
 
