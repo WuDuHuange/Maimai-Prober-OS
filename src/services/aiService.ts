@@ -275,6 +275,116 @@ export async function streamAIChat(
   }
 }
 
+// ---- Function Calling Agent Loop ----
+import type { ToolDefinition, ToolCall } from './aiTools';
+import { AI_TOOLS, executeToolCall } from './aiTools';
+
+export interface AgentCallbacks {
+  onChunk: (text: string) => void;
+  onThinking?: (text: string) => void;
+  onToolCall?: (toolName: string) => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Agent 循环：发送消息 → 检查是否需要工具调用 → 执行工具 → 继续对话
+ * 最多循环 3 轮工具调用
+ */
+export async function agentChat(
+  systemPrompt: string,
+  userMessage: string,
+  callbacks: AgentCallbacks
+): Promise<void> {
+  const config = getActiveAIConfig();
+  if (!config) throw new Error('请先配置 AI 服务');
+
+  // 只支持 Gemini 的 Function Calling（OpenAI 需要不同格式）
+  if (config.provider !== 'gemini') {
+    // 回退到普通流式
+    await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
+    return;
+  }
+
+  // 构建对话历史
+  const contents: any[] = [
+    { role: 'user', parts: [{ text: userMessage }] },
+  ];
+
+  const tools = [{ functionDeclarations: AI_TOOLS }];
+
+  // Agent 循环
+  for (let turn = 0; turn < 3; turn++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`;
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        tools,
+      }),
+      signal: callbacks.signal,
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Agent API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
+    }
+
+    const data = await resp.json();
+    const candidate = data.candidates?.[0];
+    if (!candidate) throw new Error('AI 返回为空');
+
+    const parts = candidate.content?.parts || [];
+
+    // 检查是否有 functionCall
+    const funcCalls = parts.filter((p: any) => p.functionCall);
+    const textParts = parts.filter((p: any) => p.text);
+
+    if (funcCalls.length > 0) {
+      // 处理工具调用
+      const funcCall = funcCalls[0].functionCall as ToolCall;
+      callbacks.onToolCall?.(funcCall.name);
+
+      // 执行工具
+      const result = await executeToolCall(funcCall);
+
+      // 追加到对话历史
+      contents.push({
+        role: 'model',
+        parts: [{ functionCall: funcCall }],
+      });
+      contents.push({
+        role: 'user',
+        parts: [{ functionResponse: { name: funcCall.name, response: { content: result } } }],
+      });
+
+      // 继续循环
+      continue;
+    }
+
+    if (textParts.length > 0) {
+      // 最终文本回复 → 直接输出（非流式，因为 Agent 循环不支持）
+      const text = textParts.map((p: any) => p.text).join('');
+      callbacks.onChunk(text);
+
+      // 同时检查是否有思考内容
+      const thoughtParts = parts.filter((p: any) => p.thought);
+      for (const tp of thoughtParts) {
+        callbacks.onThinking?.(tp.text || '');
+      }
+      return;
+    }
+
+    // 既没有文本也没有 functionCall → 异常
+    throw new Error('AI 返回异常：无文本也无工具调用');
+  }
+
+  throw new Error('工具调用超过最大轮次 (3)');
+}
+
+
 async function callClaudeStream(
   config: AIConfig,
   systemPrompt: string,

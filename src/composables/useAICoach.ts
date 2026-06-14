@@ -8,7 +8,7 @@ import {
   buildSongDatabaseContext,
   buildB50Context,
 } from '@/utils/coachContextBuilder';
-import { streamAIChat, getActiveAIConfig } from '@/services/aiService';
+import { streamAIChat, agentChat, getActiveAIConfig } from '@/services/aiService';
 
 export function useAICoach() {
   const chatStore = useAIChatStore();
@@ -71,14 +71,26 @@ export function useAICoach() {
     chatStore.isStreaming = true;
 
     try {
-      await streamAIChat(
-        SYSTEM_PROMPT,
-        userMessage,
-        (chunk) => chatStore.appendToLastMessage(chunk),
-        (thinking) => chatStore.appendThinking(thinking)
-      );
+      // === Function Calling Agent（AI 按需查询本地数据库）===
+      await agentChat(SYSTEM_PROMPT, userMessage, {
+        onChunk: (chunk) => chatStore.appendToLastMessage(chunk),
+        onThinking: (t) => chatStore.appendThinking(t),
+        onToolCall: (toolName) => {
+          chatStore.appendToLastMessage(`\n\n> 🔧 *正在查询: ${toolName}...*\n\n`);
+        },
+      });
     } catch (err: any) {
-      chatStore.addMessage({ role: 'assistant', content: `❌ 错误: ${err.message}` });
+      // Agent 失败 → 回退到普通流式
+      console.warn('[Agent] 回退到普通模式:', err.message);
+      try {
+        await streamAIChat(
+          SYSTEM_PROMPT, userMessage,
+          (chunk) => chatStore.appendToLastMessage(chunk),
+          (t) => chatStore.appendThinking(t)
+        );
+      } catch (fallbackErr: any) {
+        chatStore.addMessage({ role: 'assistant', content: `❌ 错误: ${fallbackErr.message}` });
+      }
     } finally {
       chatStore.isStreaming = false;
     }
