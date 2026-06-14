@@ -117,6 +117,7 @@ import { encrypt, decrypt } from '@/services/cryptoService';
 import { API_BASE } from '@/types/sync';
 import {
   type AIProvider,
+  type ModelPreset,
   MODEL_PRESETS,
   saveAIConfig,
   removeAIConfig,
