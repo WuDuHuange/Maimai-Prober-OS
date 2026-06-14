@@ -276,7 +276,7 @@ export async function streamAIChat(
 }
 
 // ---- Function Calling Agent Loop ----
-import type { ToolDefinition, ToolCall } from './aiTools';
+import type { ToolCall } from './aiTools';
 import { AI_TOOLS, executeToolCall } from './aiTools';
 
 export interface AgentCallbacks {
