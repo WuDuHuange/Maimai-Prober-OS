@@ -1,0 +1,17 @@
+[
+  { "id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash (推荐)", "provider": "gemini" },
+  { "id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "provider": "gemini" },
+  { "id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "provider": "gemini" },
+  { "id": "gemma-4-31b-it", "label": "Gemma 4 31B Instruct", "provider": "gemini" },
+  { "id": "gemma-3-27b-it", "label": "Gemma 3 27B Instruct", "provider": "gemini" },
+  { "id": "gemma-3-12b-it", "label": "Gemma 3 12B Instruct", "provider": "gemini" },
+  { "id": "gpt-4o", "label": "GPT-4o", "provider": "openai" },
+  { "id": "gpt-4o-mini", "label": "GPT-4o Mini", "provider": "openai" },
+  { "id": "gpt-4.1", "label": "GPT-4.1", "provider": "openai" },
+  { "id": "deepseek-chat", "label": "DeepSeek V3", "provider": "deepseek" },
+  { "id": "deepseek-reasoner", "label": "DeepSeek R1", "provider": "deepseek" },
+  { "id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash", "provider": "deepseek" },
+  { "id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro (推荐)", "provider": "deepseek" },
+  { "id": "claude-sonnet-4-20250514", "label": "Claude Sonnet 4", "provider": "claude" },
+  { "id": "claude-3-5-haiku-20241022", "label": "Claude 3.5 Haiku", "provider": "claude" }
+]

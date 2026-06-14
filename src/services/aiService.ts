@@ -14,30 +14,48 @@ export interface ModelPreset {
 }
 
 export const MODEL_PRESETS: ModelPreset[] = [
-  // Google Gemini 系列
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (推荐)', provider: 'gemini' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'gemini' },
-  { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', provider: 'gemini' },
-  // Google Gemma 系列 (同 API)
-  { id: 'gemma-4-31b-it', label: 'Gemma 4 31B Instruct', provider: 'gemini' },
-  { id: 'gemma-3-27b-it', label: 'Gemma 3 27B Instruct', provider: 'gemini' },
-  { id: 'gemma-3-12b-it', label: 'Gemma 3 12B Instruct', provider: 'gemini' },
-  // OpenAI 系列
-  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-  // DeepSeek 系列
+  // 内置兜底列表（最新列表优先从 models.json 加载）
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'gemini' },
   { id: 'deepseek-chat', label: 'DeepSeek V3', provider: 'deepseek' },
-  { id: 'deepseek-reasoner', label: 'DeepSeek R1', provider: 'deepseek' },
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', provider: 'deepseek' },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (推荐)', provider: 'deepseek' },
-  // Claude 系列
+  { id: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
   { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', provider: 'claude' },
-  { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku', provider: 'claude' },
 ];
 
 export function getPresetsForProvider(provider: AIProvider): ModelPreset[] {
   return MODEL_PRESETS.filter(p => p.provider === provider);
+}
+
+/** 动态加载模型预设（远程优先 → 缓存 → 内置兜底） */
+export async function loadModelPresets(): Promise<ModelPreset[]> {
+  const sources: (() => Promise<ModelPreset[] | null>)[] = [
+    // 1) 同源 models.json（随部署自动更新）
+    async () => {
+      const resp = await fetch('/Maimai-Prober-OS/models.json', { cache: 'no-cache' });
+      return resp.ok ? resp.json() : null;
+    },
+    // 2) GitHub Raw（最新版本）
+    async () => {
+      const resp = await fetch(
+        'https://raw.githubusercontent.com/WuDuHuange/Maimai-Prober-OS/master/public/models.json',
+        { cache: 'no-cache' }
+      );
+      return resp.ok ? resp.json() : null;
+    },
+    // 3) 本地缓存
+    async () => {
+      const cached = getCachedRemoteModels();
+      return cached.models.length > 0 ? cached.models : null;
+    },
+  ];
+
+  for (const source of sources) {
+    try {
+      const result = await source();
+      if (result?.length) return result;
+    } catch { /* 继续下一个源 */ }
+  }
+
+  return MODEL_PRESETS;
 }
 
 // ---- 配置读取 ----

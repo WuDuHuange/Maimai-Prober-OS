@@ -118,12 +118,12 @@ import { API_BASE } from '@/types/sync';
 import {
   type AIProvider,
   MODEL_PRESETS,
-  getPresetsForProvider,
   saveAIConfig,
   removeAIConfig,
   testAIConnection,
   fetchRemoteModels,
   getCachedRemoteModels,
+  loadModelPresets,
   type RemoteModelEntry,
 } from '@/services/aiService';
 
@@ -145,10 +145,12 @@ const aiTestLoading = ref(false);
 const remoteModels = ref<RemoteModelEntry[]>([]);
 const remoteUpdatedAt = ref<string | null>(null);
 const remoteLoading = ref(false);
+/** 动态加载的模型预设列表 */
+const dynamicPresets = ref<ModelPreset[]>(MODEL_PRESETS);
 
-/** 当前供应商可用的模型列表（内置 + 远程合并） */
+/** 当前供应商可用的模型列表（动态 + 远程合并） */
 const mergedPresets = computed(() => {
-  const builtin = getPresetsForProvider(activeProvider.value);
+  const builtin = dynamicPresets.value.filter(m => m.provider === activeProvider.value);
   const remote = remoteModels.value.filter(m => m.provider === activeProvider.value);
   const seen = new Set(builtin.map(m => m.id));
   const extra = remote.filter(m => !seen.has(m.id));
@@ -252,6 +254,11 @@ onMounted(() => {
     remoteModels.value = cached.models;
     remoteUpdatedAt.value = cached.updatedAt;
   }
+
+  // 动态加载最新模型预设（远程优先 → 缓存 → 内置兜底）
+  loadModelPresets().then(list => {
+    dynamicPresets.value = list;
+  });
 });
 
 async function doLogin() {
