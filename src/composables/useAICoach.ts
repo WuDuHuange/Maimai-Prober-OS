@@ -17,16 +17,30 @@ export function useAICoach() {
   const playerStore = usePlayerStore();
   const b50Store = useB50Store();
 
+  /** 构建自动注入的轻量玩家数据上下文（每次对话都带） */
+  function buildAutoContext(): string {
+    const parts: string[] = [];
+    parts.push(`[系统注入 — 当前玩家数据]`);
+    parts.push(`昵称: ${playerStore.playerName} | Rating: ${playerStore.currentRating} | 总游玩: ${playLogStore.totalCount} 次 | 曲库: ${songStore.songs.size} 首`);
+    
+    if (b50Store.b50List.length > 0) {
+      const top5 = b50Store.b50List.slice(0, 5);
+      parts.push(`B50 Top5: ` + top5.map(b => 
+        `${b.title ?? '#'+b.songId}(${b.difficulty.toUpperCase()} ${b.constant} 达成${b.achievements.toFixed(1)}% R贡献${b.ratingContribution?.toFixed(0)})`
+      ).join(', '));
+    }
+    return parts.join('\n');
+  }
+
   async function sendMessage(userInput: string, context?: string) {
     const config = getActiveAIConfig();
     if (!config) {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    // userMessage = 纯数据/上下文 + 用户问题，systemPrompt 由 aiService 统一拼接
-    const userMessage = context
-      ? context + '\n\n' + userInput
-      : userInput;
+    // 自动上下文：手打消息时注入轻量数据；按钮触发时用完整上下文
+    const autoCtx = context ? '' : buildAutoContext();
+    const userMessage = [autoCtx, context, userInput].filter(Boolean).join('\n\n');
 
     chatStore.addMessage({ role: 'user', content: userInput });
     chatStore.addMessage({ role: 'assistant', content: '', thinking: '' });
