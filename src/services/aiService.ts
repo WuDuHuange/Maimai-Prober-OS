@@ -295,9 +295,8 @@ export async function streamAIChat(
   }
 }
 
-// ---- Function Calling Agent Loop ----
-import type { ToolCall } from './aiTools';
-import { AI_TOOLS, executeToolCall } from './aiTools';
+// ---- Prompt-Based Agent (统一架构，不依赖 API 原生 Function Calling) ----
+import { buildToolPrompt, executeToolCall } from './aiTools';
 
 export interface AgentCallbacks {
   onChunk: (text: string) => void;
@@ -307,8 +306,9 @@ export interface AgentCallbacks {
 }
 
 /**
- * Agent 循环：发送消息 → 检查是否需要工具调用 → 执行工具 → 继续对话
- * 最多循环 3 轮工具调用
+ * Prompt-Based Agent 循环
+ * 原理：在 System Prompt 中注入工具清单 + TOOL/ARGS/===END=== 文本协议
+ * 流式拦截 AI 响应 → 检测 TOOL: → 执行 Dexie → 注入 RESULT: → 继续
  */
 export async function agentChat(
   systemPrompt: string,
@@ -318,185 +318,154 @@ export async function agentChat(
   const config = getActiveAIConfig();
   if (!config) throw new Error('请先配置 AI 服务');
 
-  // Gemma 不支持 Function Calling
-  if (config.model.includes('gemma')) {
-    console.warn('[Agent] Gemma 不支持 Function Calling，回退');
-    await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
+  // 拼接完整 System Prompt（原提示词 + 工具清单）
+  const fullSystemPrompt = systemPrompt + '\n\n' + buildToolPrompt();
+
+  // 对话历史（纯文本累积）
+  let conversation = userMessage;
+  const maxTurns = 4;
+
+  for (let turn = 0; turn < maxTurns; turn++) {
+    console.log('[Agent] 第', turn + 1, '轮, 上下文长度:', conversation.length);
+
+    // 调用对应供应商的流式接口，但我们需要拦截 TOOL 指令
+    // 流式累积文本，检测 TOOL: 触发点
+    let accumulated = '';
+    let toolDetected = false;
+    let toolName = '';
+    let toolArgs: Record<string, unknown> = {};
+
+    const toolInterceptor = (chunk: string) => {
+      accumulated += chunk;
+
+      // 检测 TOOL: 指令（在累积文本中查找）
+      const toolMatch = accumulated.match(/TOOL:\s*(\S+)\s*\nARGS:\s*(\{[\s\S]*?\})\s*\n===END===/);
+      if (toolMatch && !toolDetected) {
+        toolDetected = true;
+        toolName = toolMatch[1].trim();
+        try { toolArgs = JSON.parse(toolMatch[2]); } catch { toolArgs = {}; }
+        console.log('[Agent] 检测到 TOOL:', toolName, toolArgs);
+        callbacks.onToolCall?.(toolName);
+      }
+    };
+
+    // 调用流式接口（所有供应商统一走这个拦截器）
+    try {
+      await streamAIChatRaw(fullSystemPrompt, conversation, toolInterceptor, callbacks.onThinking, callbacks.signal, config);
+    } catch (err: any) {
+      throw err;
+    }
+
+    // 如果检测到工具调用 → 执行 → 注入结果 → 下一轮
+    if (toolDetected && toolName) {
+      const result = await executeToolCall({ name: toolName, args: toolArgs });
+      const resultBlock = `\n\nRESULT:\n${result.slice(0, 3000)}\n===END===\n\n基于以上真实数据回答用户问题。`;
+      conversation += '\n\n' + accumulated.split('===END===')[0] + '===END===' + resultBlock;
+      callbacks.onChunk(`\n> 🔧 已执行 ${toolName}，正在分析数据...\n\n`);
+      continue;
+    }
+
+    // 没有工具调用 → 最终回复
+    callbacks.onChunk(accumulated);
     return;
   }
 
-  if (config.provider === 'gemini') {
-    await geminiAgentLoop(config, systemPrompt, userMessage, callbacks);
-  } else if (config.provider === 'deepseek' || config.provider === 'openai') {
-    await openAIAgentLoop(config, systemPrompt, userMessage, callbacks);
-  } else {
-    await streamAIChat(systemPrompt, userMessage, callbacks.onChunk, callbacks.onThinking, callbacks.signal);
-  }
+  throw new Error('工具调用超过最大轮次');
 }
 
-/** Gemini Function Calling Agent */
-async function geminiAgentLoop(
-  config: AIConfig, systemPrompt: string, userMessage: string, callbacks: AgentCallbacks
-) {
-
-  // 构建对话历史
-  const contents: any[] = [
-    { role: 'user', parts: [{ text: userMessage }] },
-  ];
-
-  const tools = [{ functionDeclarations: AI_TOOLS }];
-
-  // Agent 循环
-  for (let turn = 0; turn < 3; turn++) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`;
-
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        tools,
-      }),
-      signal: callbacks.signal,
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`Agent API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
-    }
-
-    const data = await resp.json();
-    const candidate = data.candidates?.[0];
-    if (!candidate) {
-      console.error('[Agent] 无候选:', JSON.stringify(data).slice(0, 300));
-      throw new Error('AI 返回为空');
-    }
-
-    const parts = candidate.content?.parts || [];
-    console.log('[Agent] 第', turn + 1, '轮响应 parts:', parts.map((p: any) => Object.keys(p)).join(','));
-
-    // 检查是否有 functionCall
-    const funcCalls = parts.filter((p: any) => p.functionCall);
-    const textParts = parts.filter((p: any) => p.text);
-
-    if (funcCalls.length > 0) {
-      // 处理工具调用
-      const funcCall = funcCalls[0].functionCall as ToolCall;
-      console.log('[Agent] 第', turn + 1, '轮 → functionCall:', funcCall.name, funcCall.args);
-      callbacks.onToolCall?.(funcCall.name);
-
-      // 执行工具
-      const result = await executeToolCall(funcCall);
-
-      // 追加到对话历史（role 必须是 'function'，不是 'user'）
-      contents.push({
-        role: 'model',
-        parts: [{ functionCall: funcCall }],
+/** 流式调用（不含工具拦截逻辑，只负责发送请求和回调） */
+async function streamAIChatRaw(
+  systemPrompt: string,
+  userMessage: string,
+  onChunk: (text: string) => void,
+  onThinking: ((text: string) => void) | undefined,
+  signal: AbortSignal | undefined,
+  config: AIConfig
+): Promise<void> {
+  switch (config.provider) {
+    case 'gemini': {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?key=${config.apiKey}`;
+      const resp = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: systemPrompt + '\n\n---\n\n' + userMessage }] }],
+        }),
+        signal,
       });
-      contents.push({
-        role: 'function',
-        parts: [{
-          functionResponse: {
-            name: funcCall.name,
-            response: { name: funcCall.name, content: result },
-          },
-        }],
-      });
-
-      // 继续循环
-      continue;
-    }
-
-    if (textParts.length > 0) {
-      // 最终文本回复 → 直接输出（非流式，因为 Agent 循环不支持）
-      const text = textParts.map((p: any) => p.text).join('');
-      callbacks.onChunk(text);
-
-      // 同时检查是否有思考内容
-      const thoughtParts = parts.filter((p: any) => p.thought);
-      for (const tp of thoughtParts) {
-        callbacks.onThinking?.(tp.text || '');
+      if (!resp.ok) throw new Error(`Gemini ${resp.status}`);
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              for (const part of (json.candidates?.[0]?.content?.parts || [])) {
+                if (part.text) onChunk(part.text);
+                if (part.thought && onThinking) onThinking(part.text || '');
+              }
+            } catch { /* skip */ }
+          }
+        }
       }
       return;
     }
-
-    // 既没有文本也没有 functionCall → 异常
-    throw new Error('AI 返回异常：无文本也无工具调用');
-  }
-
-  throw new Error('工具调用超过最大轮次 (3)');
-}
-
-/** DeepSeek / OpenAI Function Calling Agent */
-async function openAIAgentLoop(
-  config: AIConfig, systemPrompt: string, userMessage: string, callbacks: AgentCallbacks
-) {
-  const endpoint = config.provider === 'openai'
-    ? 'https://api.openai.com/v1/chat/completions'
-    : 'https://api.deepseek.com/v1/chat/completions';
-
-  // OpenAI 格式工具
-  const tools = AI_TOOLS.map(t => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }));
-
-  const messages: any[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userMessage },
-  ];
-
-  for (let turn = 0; turn < 3; turn++) {
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({ model: config.model, messages, tools }),
-      signal: callbacks.signal,
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`Agent API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
-    }
-
-    const data = await resp.json();
-    const msg = data.choices?.[0]?.message;
-    if (!msg) throw new Error('AI 返回为空');
-
-    // 检查 tool_calls
-    if (msg.tool_calls?.length > 0) {
-      const tc = msg.tool_calls[0];
-      const funcName = tc.function.name;
-      const funcArgs = JSON.parse(tc.function.arguments || '{}');
-      console.log('[Agent] 第', turn + 1, '轮 → tool_call:', funcName, funcArgs);
-      callbacks.onToolCall?.(funcName);
-
-      const result = await executeToolCall({ name: funcName, args: funcArgs });
-
-      messages.push({ role: 'assistant', content: null, tool_calls: [tc] });
-      messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-      continue;
-    }
-
-    // 文本回复
-    if (msg.content) {
-      callbacks.onChunk(msg.content);
-      if (msg.reasoning_content) callbacks.onThinking?.(msg.reasoning_content);
+    case 'deepseek':
+    case 'openai': {
+      const endpoint = config.provider === 'openai'
+        ? 'https://api.openai.com/v1/chat/completions'
+        : 'https://api.deepseek.com/v1/chat/completions';
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+        body: JSON.stringify({
+          model: config.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          stream: true,
+        }),
+        signal,
+      });
+      if (!resp.ok) throw new Error(`${config.provider} ${resp.status}`);
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+          const data = trimmed.slice(6);
+          if (data === '[DONE]') continue;
+          try {
+            const json = JSON.parse(data);
+            const delta = json.choices?.[0]?.delta;
+            if (delta?.content) onChunk(delta.content);
+            if (delta?.reasoning_content && onThinking) onThinking(delta.reasoning_content);
+          } catch { /* skip */ }
+        }
+      }
       return;
     }
-
-    throw new Error('AI 返回异常：无文本也无工具调用');
+    case 'claude': {
+      await callClaudeStream(config, systemPrompt, userMessage, onChunk, signal);
+      return;
+    }
+    default:
+      throw new Error(`不支持的供应商: ${config.provider}`);
   }
-
-  throw new Error('工具调用超过最大轮次 (3)');
 }
 
 

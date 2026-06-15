@@ -17,29 +17,13 @@ export function useAICoach() {
   const playerStore = usePlayerStore();
   const b50Store = useB50Store();
 
-  /** 构建自动注入的轻量玩家数据上下文 */
-  function buildAutoContext(): string {
-    const parts: string[] = [];
-    parts.push(`[系统注入 — 当前玩家数据]`);
-    parts.push(`昵称: ${playerStore.playerName} | Rating: ${playerStore.currentRating} | 总游玩: ${playLogStore.totalCount} 次 | 曲库: ${songStore.songs.size} 首`);
-    
-    if (b50Store.b50List.length > 0) {
-      const top5 = b50Store.b50List.slice(0, 5);
-      parts.push(`B50 Top5: ` + top5.map(b => 
-        `${b.title ?? '#'+b.songId}(${b.difficulty.toUpperCase()} ${b.constant} 达成${b.achievements.toFixed(1)}% R贡献${b.ratingContribution?.toFixed(0)})`
-      ).join(', '));
-    }
-    return parts.join('\n');
-  }
-
   async function sendMessage(userInput: string, context?: string) {
     const config = getActiveAIConfig();
     if (!config) {
       throw new Error('请先在设置中配置 AI 服务 (支持 Gemini / OpenAI / DeepSeek / Claude / Gemma)');
     }
 
-    const isAgent = config.provider === 'gemini' || config.provider === 'deepseek' || config.provider === 'openai';
-
+    // 所有供应商统一走 Prompt-Based Agent（不依赖原生 Function Calling）
     // ===== 组装上下文 =====
     const segments: string[] = [];
 
@@ -57,14 +41,9 @@ export function useAICoach() {
       );
     }
 
-    // 3) 数据上下文：Agent 模式不注入（AI 自己调工具）; 回退模式注入静态文本
-    if (!isAgent) {
-      const autoCtx = context ? '' : buildAutoContext();
-      if (autoCtx || context) {
-        segments.push([autoCtx, context].filter(Boolean).join('\n\n'));
-      }
-    } else if (context) {
-      // Agent 模式下仍可接受显式 context（如 coachAnalysis 的完整数据）
+    // 3) 数据上下文：Agent 自己调工具拿数据，不再注入静态文本
+    //    但 coachAnalysis 的显式 context 仍然接受（完整数据注入）
+    if (context) {
       segments.push(context);
     }
 
