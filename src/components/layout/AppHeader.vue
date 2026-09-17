@@ -76,7 +76,7 @@ function onFileChange(e: Event) {
 
 const navItems = [
   { key: 'overview', label: '总览' },
-  { key: 'dashboard', label: '数据看板' },
+  { key: 'galaxy', label: '3D 星系' },
   { key: 'songs', label: '歌曲库' },
   { key: 'ai', label: 'AI复盘' },
   { key: 'settings', label: '设置' },

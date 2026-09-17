@@ -1,26 +1,36 @@
 <template>
   <div class="b50-grid-container">
-    <p v-if="!cards.length" class="empty-text">暂无 B50 数据，请先同步</p>
+    <p v-if="!b50Store.b50List.length" class="empty-text">暂无 B50 数据，请先同步</p>
 
     <template v-else>
       <div class="b50-section">
         <div class="section-head">
           <span class="section-badge new-badge">B15</span>
           <span class="section-sub">DX 谱面 · Top {{ b15.length }}</span>
-          <span class="section-total">合计 {{ b15Total }}</span>
+          <span class="section-total">{{ b15Total }}</span>
         </div>
         <div class="b50-grid">
-          <B50Card v-for="card in b15" :key="card.songId + '_' + card.difficulty" :card="card" />
+          <B50Card
+            v-for="(card, i) in b15"
+            :key="card.songId + '_' + card.difficulty"
+            :card="card"
+            :enter-delay="i"
+          />
         </div>
       </div>
       <div class="b50-section">
         <div class="section-head">
           <span class="section-badge old-badge">B35</span>
           <span class="section-sub">旧版本歌曲 · Top {{ b35.length }}</span>
-          <span class="section-total">合计 {{ b35Total }}</span>
+          <span class="section-total">{{ b35Total }}</span>
         </div>
         <div class="b50-grid">
-          <B50Card v-for="card in b35" :key="card.songId + '_' + card.difficulty" :card="card" />
+          <B50Card
+            v-for="(card, i) in b35"
+            :key="card.songId + '_' + card.difficulty"
+            :card="card"
+            :enter-delay="i"
+          />
         </div>
       </div>
     </template>
@@ -28,40 +38,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useB50Store } from '@/stores/useB50Store';
 import { getCoverUrl } from '@/types/sync';
 import type { B50Record } from '@/types/b50';
 import B50Card from './B50Card.vue';
 
 const b50Store = useB50Store();
+const { b15List, b35List, b15Total: b15TotalRaw, b35Total: b35TotalRaw } = storeToRefs(b50Store);
 
 interface CardData extends B50Record { coverUrl: string; }
 
-const cards = ref<CardData[]>([]);
-const b15 = ref<CardData[]>([]);
-const b35 = ref<CardData[]>([]);
-const b15Total = ref('');
-const b35Total = ref('');
+const coverMap = ref<Record<string, string>>({});
 
-async function load() {
-  await b50Store.loadFromDB();
-  const list = [...b50Store.b50List]
-    .sort((a, b) => (b.ratingContribution || 0) - (a.ratingContribution || 0));
+const decorate = (list: B50Record[]): CardData[] =>
+  list.map(c => {
+    const key = c.songId + '_' + c.difficulty;
+    if (!coverMap.value[key]) coverMap.value[key] = getCoverUrl(c.songId);
+    return { ...c, coverUrl: coverMap.value[key] };
+  });
 
-  const enriched: CardData[] = list.map(c => ({ ...c, coverUrl: getCoverUrl(c.songId) }));
-  cards.value = enriched;
+const b15 = computed(() => decorate(b15List.value));
+const b35 = computed(() => decorate(b35List.value));
+const b15Total = computed(() => (b15TotalRaw.value || 0).toFixed(0));
+const b35Total = computed(() => (b35TotalRaw.value || 0).toFixed(0));
 
-  // Split: isNew → B15 (current version), !isNew → B35 (old versions)
-  b15.value = enriched.filter(c => c.isNew).slice(0, 15);
-  b35.value = enriched.filter(c => !c.isNew).slice(0, 35);
-
-  b15Total.value = b15.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);
-  b35Total.value = b35.value.reduce((s, c) => s + (c.ratingContribution || 0), 0).toFixed(0);
-}
-
-onMounted(load);
-watch(() => b50Store.b50List.length, () => load());
+onMounted(() => { b50Store.loadFromDB(); });
 </script>
 
 <style scoped>

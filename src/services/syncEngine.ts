@@ -5,6 +5,7 @@ import type { SyncResult, SyncProgress } from '@/types/sync';
 import { db } from './db';
 import { fetchSongList, fetchPlayerRecords } from './divingFishApi';
 import { mapSongItemToMeta, mapOfficialRecord, computeRecordMd5 } from './dataCleaner';
+import { collapseByChart } from '@/utils/b50Collapse';
 
 function getConstForDifficulty(song: SongMeta | undefined, d: DifficultyType): number | null {
   if (!song) return null;
@@ -102,19 +103,12 @@ async function rebuildB50Snapshot(): Promise<void> {
   const songMap = new Map(songs.map(s => [s.songId, s]));
   const allRecords = await db.playLogs.toArray();
 
-  // Debug: check first 3 songs and records
-  if (songs.length > 0) console.log('[B50] 示例歌曲 songId type:', typeof songs[0].songId, '值:', songs[0].songId);
-  if (allRecords.length > 0) console.log('[B50] 示例记录 songId type:', typeof allRecords[0].songId, '值:', allRecords[0].songId);
-  if (songs.length > 0 && allRecords.length > 0) {
-    const r0 = allRecords[0];
-    const s0 = songMap.get(r0.songId);
-    console.log('[B50] 记录#1 songId:', r0.songId, 'difficulty:', r0.difficulty, '歌曲找到:', !!s0);
-    if (s0) console.log('[B50] 歌曲常量:', { basic: s0.basicConst, advanced: s0.advancedConst, expert: s0.expertConst, master: s0.masterConst, remaster: s0.remasterConst });
-  }
+  // 关键步骤：同一谱面只保留最佳成绩，避免重复上榜
+  const uniqueRecords = collapseByChart(allRecords);
 
   // Score all records
   const scored: Array<{ record: PlayRecord; contribution: number; isNew: boolean; type: string }> = [];
-  for (const r of allRecords) {
+  for (const r of uniqueRecords) {
     const song = songMap.get(r.songId);
     const c = getConstForDifficulty(song, r.difficulty);
     if (c && c > 0) {
@@ -160,6 +154,8 @@ async function rebuildB50Snapshot(): Promise<void> {
 
   await db.b50Snapshot.clear();
   if (b50Records.length > 0) await db.b50Snapshot.bulkAdd(b50Records);
-  console.log('[B50] 歌曲数:', songs.length, '记录数:', allRecords.length, '有效评分:', scored.length,
-    '| B15(新):', b15.length, 'B35(旧):', b35.length, '| B50条目:', b50Records.length);
+  console.log(
+    `[B50] 曲库 ${songs.length} 首 | playLogs ${allRecords.length} 条 → 按谱面归并 ${uniqueRecords.length} 条`,
+    `| 有效评分 ${scored.length} | B15 ${b15.length} / B35 ${b35.length} | 快照 ${b50Records.length} 条`
+  );
 }

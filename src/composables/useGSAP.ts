@@ -35,17 +35,40 @@ export function useGSAP() {
     );
   }
 
-  function countUp(target: string | Element, start: number, end: number, duration = 1) {
-    return gsap.fromTo(
-      target,
-      { textContent: start },
-      {
-        textContent: end,
-        duration,
-        ease: 'power1.out',
-        snap: { textContent: 1 },
-      }
-    );
+  /**
+   * 数字滚动动画。
+   * 通过 onUpdate 手动写入 textContent，不依赖 gsap 的 TextPlugin
+   * （TextPlugin 未注册时 textContent tween 不会生效）。
+   */
+  function countUp(
+    target: string | Element,
+    start: number,
+    end: number,
+    duration = 1,
+    decimals = 0,
+    format?: (v: number) => string,
+  ) {
+    const els = typeof target === 'string'
+      ? Array.from(document.querySelectorAll<HTMLElement>(target))
+      : [target as HTMLElement];
+
+    const render = (v: number) => (format ? format(v) : v.toFixed(decimals));
+    const state = { v: start };
+    const tween = gsap.to(state, {
+      v: end,
+      duration,
+      ease: 'power1.out',
+      onUpdate: () => {
+        const text = render(state.v);
+        for (const el of els) el.textContent = text;
+      },
+      onComplete: () => {
+        const text = render(end);
+        for (const el of els) el.textContent = text;
+      },
+    });
+    animations.push(tween);
+    return tween;
   }
 
   onBeforeUnmount(() => {

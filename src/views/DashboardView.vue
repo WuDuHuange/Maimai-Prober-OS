@@ -15,7 +15,7 @@
           <div class="flex items-end gap-6 mt-3">
             <div>
               <span class="text-xs text-text-muted">Rating</span>
-              <div class="rating-big">{{ playerStore.currentRating.toFixed(2) }}</div>
+              <div ref="ratingEl" class="rating-big">{{ playerStore.currentRating.toFixed(2) }}</div>
             </div>
           </div>
         </div>
@@ -36,11 +36,11 @@
     </div>
 
     <!-- Stats Bar -->
-    <div id="stats-section" class="card-static stats-bar">
+    <div id="stats-section" ref="statsEl" class="card-static stats-bar">
       <div v-for="st in statsItems" :key="st.label" class="stat-item">
         <span class="st-label">{{ st.label }}</span>
-        <span class="st-num">{{ st.value }}</span>
-        <span class="st-change up">{{ st.change }}</span>
+        <span class="st-num" :data-count="st.count" :data-fmt="st.fmt">{{ st.value }}</span>
+        <span class="st-change" :class="st.tone">{{ st.change }}</span>
       </div>
     </div>
 
@@ -103,16 +103,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, nextTick } from 'vue';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
+import { useGSAP } from '@/composables/useGSAP';
 import B50CardGrid from '@/components/b50/B50CardGrid.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
 const b50Store = useB50Store();
+const { staggerIn, countUp } = useGSAP();
 const avatarInput = ref<HTMLInputElement | null>(null);
+const ratingEl = ref<HTMLElement | null>(null);
+const statsEl = ref<HTMLElement | null>(null);
 
 function triggerAvatarUpload() {
   avatarInput.value?.click();
@@ -154,14 +158,28 @@ const statsItems = computed(() => {
   const avg = total > 0 ? records.reduce((s, r) => s + r.achievements, 0) / total : 0;
   const sssPlus = records.filter(r => r.achievements >= 100.5).length;
   const fcCount = records.filter(r => r.fcStatus === 'fc' || r.fcStatus === 'ap').length;
-  const rt = b50Store.b50List.reduce((s, b) => s + (b.ratingContribution || 0), 0);
+
+  // 理论值：B50 全部谱面的单曲 ra 之和。
+  // ra 直接取自 diving-fish 的 records[].ra，因此该值即官方 Rating 口径；
+  // 与 API 返回的 profile.rating 相等即说明本地 B50 数据完整且无重复计数。
+  const rt = b50Store.computedRating;
+  const official = playerStore.currentRating;
+  const hasOfficial = official > 0;
+  const matched = hasOfficial && Math.abs(rt - official) < 0.5;
 
   return [
-    { label: '总游玩次数', value: total.toLocaleString(), change: '' },
-    { label: '理论值(R.T.)', value: rt.toFixed(2), change: '' },
-    { label: '平均达成率', value: avg.toFixed(2) + '%', change: '' },
-    { label: 'SSS+ 次数', value: String(sssPlus), change: '' },
-    { label: 'Full Combo', value: String(fcCount), change: '' },
+    { label: '总游玩次数', value: total.toLocaleString(), count: total, fmt: 'locale', change: '', tone: '' },
+    {
+      label: '理论值(R.T.)',
+      value: rt.toFixed(0),
+      count: rt,
+      fmt: '',
+      change: hasOfficial ? (matched ? '与官方一致' : `官方 ${official.toFixed(0)}`) : '',
+      tone: hasOfficial ? (matched ? 'up' : 'down') : '',
+    },
+    { label: '平均达成率', value: avg.toFixed(2) + '%', count: undefined, fmt: '', change: '', tone: '' },
+    { label: 'SSS+ 次数', value: String(sssPlus), count: sssPlus, fmt: '', change: '', tone: '' },
+    { label: 'Full Combo', value: String(fcCount), count: fcCount, fmt: '', change: '', tone: '' },
   ];
 });
 
@@ -202,7 +220,27 @@ function exportData() {
 onMounted(async () => {
   await playLogStore.loadFromDB();
   await b50Store.loadFromDB();
+  await nextTick();
+  playEntrance();
 });
+
+/** 入场动效：区块错峰浮入 + 关键数字滚动 */
+function playEntrance() {
+  staggerIn('.dashboard > .card, .dashboard > .card-static, .dashboard > .fab-bar', 0.07);
+
+  if (ratingEl.value && playerStore.currentRating > 0) {
+    countUp(ratingEl.value, 0, playerStore.currentRating, 1.1, 2);
+  }
+
+  statsEl.value?.querySelectorAll<HTMLElement>('[data-count]').forEach(el => {
+    const end = Number(el.dataset.count);
+    if (!Number.isFinite(end) || end <= 0) return;
+    const fmt = el.dataset.fmt === 'locale'
+      ? (v: number) => Math.round(v).toLocaleString()
+      : undefined;
+    countUp(el, 0, end, 0.9, 0, fmt);
+  });
+}
 </script>
 
 <style scoped>
@@ -272,6 +310,7 @@ onMounted(async () => {
 .st-num { font-size: 24px; font-weight: 700; color: var(--text-primary); display: block; margin: 6px 0 2px; letter-spacing: var(--letter-spacing-tight); }
 .st-change { font-size: 11px; font-weight: 600; }
 .st-change.up { color: var(--color-success); }
+.st-change.down { color: var(--color-danger); }
 
 /* ===== Weekly Report Cards ===== */
 .weekly-stat-card {

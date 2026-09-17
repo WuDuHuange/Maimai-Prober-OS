@@ -34,8 +34,9 @@
       <div class="flex flex-1 overflow-hidden">
         <LeftSidebar @sync="handleSync" />
 
-        <main class="main-content">
+        <main class="main-content" :key="activeTab">
           <DashboardView v-if="activeTab === 'overview' || activeTab === 'dashboard'" />
+          <GalaxyView v-else-if="activeTab === 'galaxy'" />
           <SongLibraryView
             v-else-if="activeTab === 'songs'"
             @select-song="handleSelectSong"
@@ -57,12 +58,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import LeftSidebar from '@/components/layout/LeftSidebar.vue';
 import RightSidebar from '@/components/layout/RightSidebar.vue';
 import WelcomeView from '@/views/WelcomeView.vue';
 import DashboardView from '@/views/DashboardView.vue';
+// three.js 体积较大，仅在进入 3D 星系页时按需加载
+const GalaxyView = defineAsyncComponent(() => import('@/views/GalaxyView.vue'));
 import SongLibraryView from '@/views/SongLibraryView.vue';
 import SongDetailView from '@/views/SongDetailView.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
@@ -132,7 +135,19 @@ function handleAISend(text: string) { sendMessage(text); }
 
 <style scoped>
 .app-container { width: 100%; height: 100vh; overflow: hidden; }
-.main-content { flex: 1; overflow-y: auto; background: var(--bg-body); }
+.main-content {
+  flex: 1; overflow-y: auto; background: var(--bg-body);
+  animation: page-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-content { animation: none; }
+}
 
 /* 未登录时的设置独立页面 */
 .settings-standalone {

@@ -1,6 +1,7 @@
 <template>
   <div
     class="b50-card"
+    :style="{ '--enter-delay': (enterDelay ?? 0) * 26 + 'ms' }"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
   >
@@ -57,7 +58,11 @@
 import { ref } from 'vue';
 import type { B50Record } from '@/types/b50';
 
-const { card } = defineProps<{ card: B50Record & { coverUrl: string } }>();
+const { card, enterDelay } = defineProps<{
+  card: B50Record & { coverUrl: string };
+  /** 入场动画的错峰序号，由列表索引传入 */
+  enterDelay?: number;
+}>();
 
 const hovered = ref(false);
 
@@ -109,6 +114,17 @@ function fcLabel(fc: string): string {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s ease;
   box-shadow: 0 4px 16px rgba(44, 76, 160, 0.06);
+  animation: card-enter 0.52s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(12px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b50-card { animation: none; }
 }
 
 .b50-card:hover {
@@ -216,6 +232,7 @@ function fcLabel(fc: string): string {
   color: white;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 .card-grade {
