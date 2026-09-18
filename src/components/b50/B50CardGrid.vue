@@ -15,6 +15,7 @@
             :key="card.songId + '_' + card.difficulty"
             :card="card"
             :enter-delay="i"
+            @select="emit('select-song', $event)"
           />
         </div>
       </div>
@@ -30,6 +31,7 @@
             :key="card.songId + '_' + card.difficulty"
             :card="card"
             :enter-delay="i"
+            @select="emit('select-song', $event)"
           />
         </div>
       </div>
@@ -47,6 +49,8 @@ import B50Card from './B50Card.vue';
 
 const b50Store = useB50Store();
 const { b15List, b35List, b15Total: b15TotalRaw, b35Total: b35TotalRaw } = storeToRefs(b50Store);
+
+const emit = defineEmits<{ 'select-song': [songId: number] }>();
 
 interface CardData extends B50Record { coverUrl: string; }
 

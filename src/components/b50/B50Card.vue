@@ -2,8 +2,14 @@
   <div
     class="b50-card"
     :style="{ '--enter-delay': (enterDelay ?? 0) * 26 + 'ms' }"
+    role="button"
+    tabindex="0"
+    :aria-label="`查看 ${card.title ?? card.songId} 的详情`"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
+    @click="emit('select', card.songId)"
+    @keydown.enter.prevent="emit('select', card.songId)"
+    @keydown.space.prevent="emit('select', card.songId)"
   >
     <!-- Cover background -->
     <img
@@ -49,6 +55,7 @@
           <div><span class="dn-label">Rating</span><span class="dn-val">{{ card.ratingContribution?.toFixed(0) }}</span></div>
           <div><span class="dn-label">达成率</span><span class="dn-val">{{ card.achievements.toFixed(4) }}%</span></div>
         </div>
+        <div class="detail-hint">点击查看详情</div>
       </div>
     </Transition>
   </div>
@@ -63,6 +70,8 @@ const { card, enterDelay } = defineProps<{
   /** 入场动画的错峰序号，由列表索引传入 */
   enterDelay?: number;
 }>();
+
+const emit = defineEmits<{ select: [songId: number] }>();
 
 const hovered = ref(false);
 
@@ -131,6 +140,15 @@ function fcLabel(fc: string): string {
   transform: scale(1.08);
   box-shadow: 0 12px 40px rgba(44, 76, 160, 0.15);
   z-index: 5;
+}
+
+.b50-card:focus-visible {
+  outline: 2px solid var(--color-primary, #4A72FF);
+  outline-offset: 2px;
+}
+
+.b50-card:active {
+  transform: scale(1.03);
 }
 
 /* Cover background */
@@ -330,6 +348,16 @@ function fcLabel(fc: string): string {
   font-size: 14px;
   font-weight: 800;
   color: white;
+}
+
+.detail-hint {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 /* ===== Transitions ===== */

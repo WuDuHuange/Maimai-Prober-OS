@@ -41,7 +41,7 @@
         </div>
 
         <!-- 操作提示 -->
-        <div class="overlay overlay-br hint">拖拽旋转 · 滚轮缩放 · 悬停查看</div>
+        <div class="overlay overlay-br hint">拖拽旋转 · 滚轮缩放 · 悬停查看 · 点击进入曲目</div>
 
         <!-- 悬停信息卡 -->
         <Transition name="tip">
@@ -66,6 +66,7 @@
               <span class="tip-muted">{{ hovered.isNew ? 'B15 · 新曲' : 'B35 · 旧曲' }}</span>
               <span class="tip-muted">{{ hovered.type }}</span>
             </div>
+            <span class="tip-hint">点击进入曲目详情</span>
           </div>
         </Transition>
       </template>
@@ -128,6 +129,8 @@ const MAX_V_FOV = 62;
 
 const b50Store = useB50Store();
 const playerStore = usePlayerStore();
+
+const emit = defineEmits<{ 'select-song': [songId: number] }>();
 
 const hostEl = ref<HTMLDivElement | null>(null);
 const cardEl = ref<HTMLDivElement | null>(null);
@@ -482,6 +485,8 @@ function buildScene() {
 
   renderer.domElement.addEventListener('pointermove', onPointerMove);
   renderer.domElement.addEventListener('pointerleave', onPointerLeave);
+  renderer.domElement.addEventListener('pointerdown', onPointerDown);
+  renderer.domElement.addEventListener('pointerup', onPointerUp);
 
   rebuildNotes();
   animate();
@@ -1067,9 +1072,36 @@ function onPointerMove(e: PointerEvent) {
   pointerInside = true;
 }
 
+/* ---- 点击拾取：与 OrbitControls 的拖拽旋转共存 ---- */
+/** 按下时的位置与时间，用于区分「点击」与「拖拽」 */
+let pressPoint: { x: number; y: number; t: number } | null = null;
+/** 判定为点击的最大位移（CSS px）与最长按压时长（ms） */
+const CLICK_MOVE_TOLERANCE = 6;
+const CLICK_TIME_LIMIT = 600;
+
+function onPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return;
+  pressPoint = { x: e.clientX, y: e.clientY, t: performance.now() };
+}
+
+function onPointerUp(e: PointerEvent) {
+  const start = pressPoint;
+  pressPoint = null;
+  if (e.button !== 0 || !start) return;
+  // 拖拽过 / 按太久 → 视为旋转或长按，不跳转
+  const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+  if (moved > CLICK_MOVE_TOLERANCE) return;
+  if (performance.now() - start.t > CLICK_TIME_LIMIT) return;
+
+  // 复用当前悬停结果：指针未移动过，updateHover 已算出命中的音符牌
+  const record = hovered.value;
+  if (record) emit('select-song', record.songId);
+}
+
 function onPointerLeave() {
   pointerInside = false;
   pointer.set(-10, -10);
+  pressPoint = null;
   clearHover();
 }
 
@@ -1089,6 +1121,7 @@ function clearHover() {
   hovered.value = null;
   disposeHoverArc();
   setHoverPaused(false);
+  if (renderer) renderer.domElement.style.cursor = 'default';
 }
 
 function updateHover() {
@@ -1127,6 +1160,7 @@ function updateHover() {
   hovered.value = record;
   setHoverPaused(true);
   updateTipPos();
+  if (renderer) renderer.domElement.style.cursor = 'pointer';
 }
 
 /** 悬停弧线：每次目标变化时重建（频率低，可接受） */
@@ -1172,7 +1206,7 @@ function updateTipPos() {
   // 信息卡宽度随容器降级（见 @container 规则），偏移量给足以免盖住音符牌
   const cw = host.clientWidth;
   const tipW = cw < 440 ? 168 : cw < 640 ? 196 : 218;
-  const tipH = 152;
+  const tipH = 174;
   const maxX = Math.max(12, cw - tipW - 14);
   const maxY = Math.max(12, host.clientHeight - tipH - 14);
   tipPos.value = {
@@ -1253,6 +1287,8 @@ function disposeScene() {
   if (renderer) {
     renderer.domElement.removeEventListener('pointermove', onPointerMove);
     renderer.domElement.removeEventListener('pointerleave', onPointerLeave);
+    renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+    renderer.domElement.removeEventListener('pointerup', onPointerUp);
     renderer.dispose();
     renderer.domElement.remove();
     renderer = null;
@@ -1418,6 +1454,17 @@ onBeforeUnmount(disposeScene);
 .tip-metric { color: rgba(46, 27, 78, 0.8); font-variant-numeric: tabular-nums; }
 .tip-muted { color: rgba(46, 27, 78, 0.48); }
 .tip-strong { color: #7C4DFF; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.tip-hint {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(124, 77, 255, 0.14);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(124, 77, 255, 0.72);
+  text-align: center;
+}
 
 .tip-enter-active { transition: opacity 0.16s ease, transform 0.16s ease; }
 .tip-leave-active { transition: opacity 0.1s ease; }

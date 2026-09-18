@@ -30,9 +30,9 @@
     <div id="b50-section" class="card-static p-5">
       <div class="flex items-center justify-between mb-4">
         <span class="section-title-sm">Best 50 排名</span>
-        <span class="text-xs text-text-muted">Rating 贡献排序 · 悬停查看详情</span>
+        <span class="text-xs text-text-muted">Rating 贡献排序 · 悬停查看详情 · 点击进入曲目</span>
       </div>
-      <B50CardGrid />
+      <B50CardGrid @select-song="emit('select-song', $event)" />
     </div>
 
     <!-- Stats Bar -->
@@ -113,6 +113,7 @@ import B50CardGrid from '@/components/b50/B50CardGrid.vue';
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
 const b50Store = useB50Store();
+const emit = defineEmits<{ 'select-song': [songId: number] }>();
 const { staggerIn, countUp } = useGSAP();
 const avatarInput = ref<HTMLInputElement | null>(null);
 const ratingEl = ref<HTMLElement | null>(null);

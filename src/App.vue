@@ -35,8 +35,11 @@
         <LeftSidebar @sync="handleSync" />
 
         <main class="main-content" :key="activeTab">
-          <DashboardView v-if="activeTab === 'overview' || activeTab === 'dashboard'" />
-          <GalaxyView v-else-if="activeTab === 'galaxy'" />
+          <DashboardView
+            v-if="activeTab === 'overview' || activeTab === 'dashboard'"
+            @select-song="handleSelectSong"
+          />
+          <GalaxyView v-else-if="activeTab === 'galaxy'" @select-song="handleSelectSong" />
           <SongLibraryView
             v-else-if="activeTab === 'songs'"
             @select-song="handleSelectSong"
@@ -44,7 +47,7 @@
           <SongDetailView
             v-else-if="activeTab === 'song-detail'"
             :songId="selectedSongId"
-            @back="activeTab = 'songs'"
+            @back="activeTab = songDetailOrigin"
           />
           <AIChatPanel v-else-if="activeTab === 'ai'" @coach="handleAICoach" @send="handleAISend" />
           <SettingsView v-else-if="activeTab === 'settings'" />
@@ -82,6 +85,8 @@ import { decrypt } from '@/services/cryptoService';
 
 const activeTab = ref('overview');
 const selectedSongId = ref<number | null>(null);
+/** 进入曲目详情前所在的 tab，返回时回到原处 */
+const songDetailOrigin = ref('songs');
 const syncStore = useSyncStore();
 const playerStore = usePlayerStore();
 const songStore = useSongStore();
@@ -125,6 +130,8 @@ async function handleSync() {
 }
 
 function handleSelectSong(songId: number) {
+  // 记录来源 tab，返回时能回到总览 / 3D 星系 / 歌曲库各自的入口
+  if (activeTab.value !== 'song-detail') songDetailOrigin.value = activeTab.value;
   selectedSongId.value = songId;
   activeTab.value = 'song-detail';
 }
