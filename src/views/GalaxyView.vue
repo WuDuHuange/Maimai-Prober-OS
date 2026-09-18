@@ -122,6 +122,10 @@ const NOTE_SIZE: Record<'new' | 'old', number> = { new: 1.3, old: 1.06 };
 const NOTE_BASE_Y = 1.8;
 const NOTE_RISE = 11;
 
+/** 水平视场角基准：保证判定盘在窄卡片里不会被裁掉（对应 aspect≈0.96 时 vFov=45°） */
+const BASE_H_FOV = 43.4;
+const MAX_V_FOV = 62;
+
 const b50Store = useB50Store();
 const playerStore = usePlayerStore();
 
@@ -227,7 +231,7 @@ function makeSkyTexture(): THREE.Texture {
   return tex;
 }
 
-/** 云朵：多个白色径向渐变叠加，边缘柔化 */
+/** 云朵：一组圆拼出轮廓（底边压平、顶部隆起），再柔化边缘 */
 function makeCloudTexture(): THREE.Texture {
   const w = 512;
   const h = 256;
@@ -236,20 +240,46 @@ function makeCloudTexture(): THREE.Texture {
   canvas.height = h;
   const ctx = canvas.getContext('2d')!;
 
+  // 云体：底部对齐到 y≈190，顶部隆起
   const puffs: Array<[number, number, number]> = [
-    [150, 150, 92], [232, 128, 108], [318, 152, 86],
-    [198, 168, 76], [286, 172, 66], [128, 172, 58], [368, 170, 52],
+    [128, 168, 46],
+    [180, 148, 62],
+    [246, 136, 76],
+    [312, 150, 62],
+    [366, 168, 48],
+    [104, 180, 34],
+    [392, 182, 32],
   ];
+
+  ctx.save();
+  ctx.filter = 'blur(9px)';
   for (const [x, y, r] of puffs) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(255,255,255,0.92)');
-    g.addColorStop(0.55, 'rgba(255,250,255,0.55)');
-    g.addColorStop(1, 'rgba(255,245,255,0)');
+    const g = ctx.createRadialGradient(x, y - r * 0.2, r * 0.1, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.99)');
+    g.addColorStop(0.62, 'rgba(255,251,255,0.88)');
+    g.addColorStop(1, 'rgba(255,248,255,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
+  // 压平底边
+  ctx.filter = 'blur(7px)';
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(248, 192, 152, 30, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 整体淡出边缘，避免出现方形边界
+  ctx.globalCompositeOperation = 'destination-in';
+  const fade = ctx.createRadialGradient(256, 150, 40, 256, 150, 210);
+  fade.addColorStop(0, 'rgba(0,0,0,1)');
+  fade.addColorStop(0.72, 'rgba(0,0,0,0.9)');
+  fade.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -392,6 +422,7 @@ function buildScene() {
 
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 400);
   camera.position.set(0, 34, 41);
+  updateCameraFov(width / height);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -466,12 +497,12 @@ function buildSky() {
   // 云朵（贴近地平线，从盘面外围望出去能看到）
   const cloudTex = makeCloudTexture();
   const cloudDefs: Array<[number, number, number, number, number]> = [
-    [-44, 5.5, -34, 30, 0.85],
-    [42, 8.5, -36, 26, 0.72],
-    [-28, 12, 42, 25, 0.66],
-    [52, 3.5, 26, 23, 0.6],
-    [6, 16, -52, 34, 0.5],
-    [-56, 2.5, 6, 22, 0.55],
+    [-44, 5.5, -34, 26, 0.62],
+    [42, 8.5, -36, 22, 0.52],
+    [-28, 12, 42, 21, 0.48],
+    [52, 3.5, 26, 19, 0.44],
+    [6, 16, -52, 28, 0.36],
+    [-56, 2.5, 6, 18, 0.4],
   ];
   for (const [x, y, z, scale, opacity] of cloudDefs) {
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -1138,12 +1169,15 @@ function disposeHoverArc() {
 function updateTipPos() {
   const host = hostEl.value;
   if (!host) return;
-  // 偏移量给足，避免信息卡盖住正在查看的音符牌
-  const maxX = host.clientWidth - 236;
-  const maxY = host.clientHeight - 152;
+  // 信息卡宽度随容器降级（见 @container 规则），偏移量给足以免盖住音符牌
+  const cw = host.clientWidth;
+  const tipW = cw < 440 ? 168 : cw < 640 ? 196 : 218;
+  const tipH = 152;
+  const maxX = Math.max(12, cw - tipW - 14);
+  const maxY = Math.max(12, host.clientHeight - tipH - 14);
   tipPos.value = {
-    x: Math.max(12, Math.min(pointerClient.x + 38, Math.max(12, maxX))),
-    y: Math.max(12, Math.min(pointerClient.y + 28, Math.max(12, maxY))),
+    x: Math.max(12, Math.min(pointerClient.x + 38, maxX)),
+    y: Math.max(12, Math.min(pointerClient.y + 28, maxY)),
   };
 }
 
@@ -1190,11 +1224,24 @@ function handleResize() {
   const w = host.clientWidth;
   const h = host.clientHeight;
   if (w === 0 || h === 0) return;
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  const aspect = w / h;
+  camera.aspect = aspect;
+  updateCameraFov(aspect);
   renderer.setSize(w, h);
   composer.setSize(w, h);
   bloomPass?.setSize(w, h);
+}
+
+/**
+ * 卡片变窄时保持水平视场角恒定（等比放大垂直 FOV），
+ * 否则 aspect 变小会让判定盘左右被裁掉；垂直 FOV 上限避免出现鱼眼畸变。
+ */
+function updateCameraFov(aspect: number) {
+  if (!camera) return;
+  const hHalf = THREE.MathUtils.degToRad(BASE_H_FOV) / 2;
+  const vHalf = Math.atan(Math.tan(hHalf) / Math.max(aspect, 0.2));
+  camera.fov = Math.min(THREE.MathUtils.radToDeg(2 * vHalf), MAX_V_FOV);
+  camera.updateProjectionMatrix();
 }
 
 function disposeScene() {
@@ -1267,6 +1314,8 @@ onBeforeUnmount(disposeScene);
   box-shadow: var(--shadow-xl);
   border: 1px solid rgba(255, 255, 255, 0.35);
   animation: galaxy-enter 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  /* 浮层按卡片自身宽度自适应，而不是按视口 */
+  container-type: inline-size;
 }
 
 @keyframes galaxy-enter {
@@ -1374,6 +1423,26 @@ onBeforeUnmount(disposeScene);
 .tip-leave-active { transition: opacity 0.1s ease; }
 .tip-enter-from { opacity: 0; transform: translateY(4px); }
 .tip-leave-to { opacity: 0; }
+
+/* ===== 窄卡片降级：标题与维度切换改为上下堆叠，图例/提示收起 =====
+   640px 是实测临界值：再窄下去标题（含副标题）会与右侧维度切换重叠 */
+@container (max-width: 640px) {
+  .overlay-tl { top: 16px; left: 16px; }
+  .overlay-tr { top: 54px; right: auto; left: 16px; }
+  .galaxy-sub { display: none; }
+  .legend { display: none; }
+  .hint { display: none; }
+  .metric-btn { padding: 5px 10px; font-size: 10px; }
+  .hover-tip { width: 196px; padding: 10px 12px; }
+  .tip-title { font-size: 11px; }
+}
+
+@container (max-width: 440px) {
+  .galaxy-title { font-size: 13px; }
+  .metric-switch { flex-wrap: wrap; }
+  .metric-btn { padding: 4px 8px; font-size: 9.5px; }
+  .hover-tip { width: 168px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .galaxy-card { animation: none; }
