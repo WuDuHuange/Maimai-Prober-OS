@@ -107,7 +107,7 @@ import { useSongStore } from '@/stores/useSongStore';
 import CoachAnalysisCard from '@/components/ai/CoachAnalysisCard.vue';
 import { db } from '@/services/db';
 import { extractPlanSongs } from '@/utils/practicePlan';
-import { marked } from 'marked';
+import { renderSafeMarkdown } from '@/utils/markdown';
 
 const emit = defineEmits<{
   /** 生成 B50 能力分析 */
@@ -158,11 +158,8 @@ function renderMarkdown(content: string, isStreaming: boolean): string {
     // 流式输出中 — 纯文本 + 简单换行
     return content.replace(/\n/g, '<br>');
   }
-  try {
-    return marked.parse(content, { breaks: true }) as string;
-  } catch {
-    return content.replace(/\n/g, '<br>');
-  }
+  // 统一走带清洗的渲染器（AI 输出会进 v-html，不能直接信任）
+  return renderSafeMarkdown(content);
 }
 
 function send() {

@@ -63,7 +63,7 @@
           </div>
 
           <template v-if="analysisStore.hasResult">
-            <AbilityRadarChart :dimensions="dimensions" :height="150" />
+            <AbilityRadarChart :dimensions="dimensions" :height="170" />
             <p class="headline">{{ analysisStore.headline }}</p>
           </template>
           <div v-else class="radar-empty">

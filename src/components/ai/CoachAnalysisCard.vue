@@ -63,6 +63,39 @@
       <!-- 总评 -->
       <p class="headline">{{ result.headline }}</p>
 
+      <!-- 教练详细分析（存一份，随时点开看） -->
+      <button
+        v-if="reportStore.hasReport"
+        class="report-row"
+        @click="openReport"
+      >
+        <span class="report-badge">AI</span>
+        <span class="report-info">
+          <span class="report-title">教练详细分析</span>
+          <span class="report-meta">
+            {{ reportMeta }}
+            <span v-if="reportStore.isStale" class="report-stale">· 数据已更新</span>
+          </span>
+        </span>
+        <span class="report-cta">查看 →</span>
+      </button>
+
+      <button
+        v-else
+        class="report-row empty"
+        :disabled="reportStore.isGenerating"
+        @click="openReport"
+      >
+        <span class="report-badge">AI</span>
+        <span class="report-info">
+          <span class="report-title">
+            {{ reportStore.isGenerating ? '教练正在写报告…' : '让教练展开详细分析' }}
+          </span>
+          <span class="report-meta">生成后存在本地，随时回看 —— 不用每次重新问</span>
+        </span>
+        <span class="report-cta">{{ reportStore.isGenerating ? '…' : '生成 →' }}</span>
+      </button>
+
       <!-- 数据新鲜度 -->
       <div class="sources">
         <span class="src" :class="{ off: !result.tagAvailable }">
@@ -133,10 +166,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import AbilityRadarChart from '@/components/charts/AbilityRadarChart.vue';
 import { useAnalysisStore } from '@/stores/useAnalysisStore';
 import { useAIChatStore } from '@/stores/useAIChatStore';
+import { useCoachReportStore } from '@/stores/useCoachReportStore';
 import { DIFFICULTY_LABEL_SHORT, type DifficultyType } from '@/types/song';
 import type { ChartAnalysis } from '@/types/b50Analysis';
 
@@ -149,6 +183,7 @@ defineEmits<{
 
 const analysis = useAnalysisStore();
 const chatStore = useAIChatStore();
+const reportStore = useCoachReportStore();
 
 const result = computed(() => analysis.result);
 const canAnalyze = computed(() => !analysis.isAnalyzing);
@@ -164,6 +199,30 @@ const hasHighlights = computed(() => {
   const h = result.value?.highlights;
   if (!h) return false;
   return h.waterCharts.length > 0 || h.underratedCharts.length > 0 || h.weakCharts.length > 0;
+});
+
+const reportMeta = computed(() => {
+  const r = reportStore.report;
+  if (!r) return '';
+  const d = new Date(r.generatedAt);
+  const t = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${t} · ${r.model || r.provider}`;
+});
+
+/**
+ * 打开弹窗；若还没有报告就顺手开始生成 —— 省掉「先开窗再点生成」那一步。
+ * 生成状态存在 Pinia 里，弹窗本身挂在 App.vue，所以切 tab / 收起卡片都不会打断。
+ */
+function openReport() {
+  reportStore.open();
+  if (!reportStore.hasReport && !reportStore.isGenerating) {
+    reportStore.generate();
+  }
+}
+
+// 报告存在 IndexedDB 里，进页面时读一次；读到了就一直用缓存
+onMounted(() => {
+  if (!reportStore.report) reportStore.load();
 });
 
 const quickQuestions = [
@@ -314,8 +373,61 @@ function diffLabel(d: DifficultyType) {
   border: 1px solid rgba(74,114,255,0.12);
 }
 
-.sources { display: flex; flex-wrap: wrap; gap: 6px; }
-.src {
+/* ===== 教练详细分析入口 ===== */
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid rgba(124, 107, 247, 0.22);
+  background: linear-gradient(120deg, rgba(74, 114, 255, 0.055), rgba(157, 123, 255, 0.055));
+  transition: all var(--transition-fast);
+}
+.report-row:hover:not(:disabled) {
+  border-color: rgba(124, 107, 247, 0.42);
+  background: linear-gradient(120deg, rgba(74, 114, 255, 0.09), rgba(157, 123, 255, 0.09));
+}
+.report-row:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.report-badge {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: linear-gradient(135deg, #4A72FF, #9D7BFF);
+  box-shadow: 0 3px 10px rgba(74, 114, 255, 0.28);
+}
+
+.report-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.report-title { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.report-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-stale { color: var(--color-warning); font-weight: 600; }
+
+.report-cta {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.sources { display: flex; flex-wrap: wrap; gap: 6px; }.src {
   font-size: 10px; padding: 3px 8px; border-radius: 999px;
   background: rgba(16,185,129,0.09); color: #047857;
   border: 1px solid rgba(16,185,129,0.2);

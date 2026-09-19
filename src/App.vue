@@ -67,6 +67,9 @@
         <RightSidebar />
       </div>
     </template>
+
+    <!-- 教练详细分析弹窗：挂在最外层，切换 tab / 收起分析卡片都不会打断生成 -->
+    <CoachReportModal />
   </div>
 </template>
 
@@ -82,6 +85,7 @@ const GalaxyView = defineAsyncComponent(() => import('@/views/GalaxyView.vue'));
 import SongLibraryView from '@/views/SongLibraryView.vue';
 import SongDetailView from '@/views/SongDetailView.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
+import CoachReportModal from '@/components/ai/CoachReportModal.vue';
 import SettingsView from '@/views/SettingsView.vue';
 import PracticePlanView from '@/views/PracticePlanView.vue';
 import { useProberSync } from '@/composables/useProberSync';
