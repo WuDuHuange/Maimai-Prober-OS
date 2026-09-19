@@ -42,6 +42,13 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/df-covers/, "/covers"),
         secure: true,
       },
+      // DXRating 谱面 tag（社区标注，公开免鉴权）— 开发期走代理规避 CORS
+      "/api-dxr": {
+        target: "https://miruku.dxrating.net",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-dxr/, ""),
+        secure: true,
+      },
     },
   },
 });

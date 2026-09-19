@@ -31,6 +31,15 @@
         </button>
       </div>
 
+      <!-- 社区标注（DXRating 众包 tag） -->
+      <section v-if="chartTags.length > 0" class="chart-card tag-card">
+        <div class="tag-card-head">
+          <h2 class="card-title mb-0">谱面标注</h2>
+          <span class="tag-source">社区标注 · DXRating</span>
+        </div>
+        <ChartTagChips :tags="chartTags" :max="12" size="md" />
+      </section>
+
       <section class="chart-card">
         <h2 class="card-title">受苦进化史</h2>
         <div class="h-[220px]">
@@ -137,6 +146,8 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { db } from '@/services/db';
 import SongHistoryChart from '@/components/charts/SongHistoryChart.vue';
 import JudgeScatterChart from '@/components/charts/JudgeScatterChart.vue';
+import ChartTagChips from '@/components/b50/ChartTagChips.vue';
+import { useTagStore } from '@/stores/useTagStore';
 import { DIFFICULTY_LIST, type DifficultyType, type NoteType, NOTE_TYPE_LABEL, type JudgeDetail, emptyJudgeDetail, calcJudgeSummary } from '@/types/song';
 import { getOrCreateJudgeDetail, saveJudgeDetail } from '@/services/judgeStorage';
 
@@ -146,6 +157,7 @@ defineEmits<{ back: [] }>();
 const route = useRoute();
 const songStore = useSongStore();
 const playLogStore = usePlayLogStore();
+const tagStore = useTagStore();
 
 const songId = computed(() => props.songId ?? Number(route.params.songId));
 const song = computed(() => songStore.getSong(songId.value));
@@ -153,6 +165,9 @@ const selectedDiff = ref<DifficultyType>('master');
 const historyRecords = ref<any[]>([]);
 /** 用户实际打过的难度列表（用于智能默认选择） */
 const playedDiffs = ref<DifficultyType[]>([]);
+
+/** 当前难度的社区标注（tag 不可用时为空数组，UI 自动隐藏该区块） */
+const chartTags = computed(() => tagStore.getTags(songId.value, selectedDiff.value));
 
 // ---- 判定补充表单 ----
 const showJudgeForm = ref(false);
@@ -277,6 +292,8 @@ onMounted(async () => {
     await songStore.loadFromDB();
   }
   await autoLoadSongData();
+  // 社区标注按需加载：拿不到就静默降级（区块自动隐藏），不阻塞详情页渲染
+  tagStore.load().catch(() => {});
 });
 
 // ⚠️ v-if tab 切换时组件不会重新挂载，watch songId 变化来重新加载
@@ -325,6 +342,19 @@ watch(songId, async (newId) => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 12px;
+}
+
+/* ===== 社区标注 ===== */
+.tag-card { padding: 14px 20px; }
+.tag-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.tag-source {
+  font-size: 10px; color: var(--text-muted);
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(148,163,184,0.10);
+  border: 1px solid rgba(148,163,184,0.2);
 }
 
 .diff-btn {
