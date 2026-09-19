@@ -7,6 +7,8 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { useB50Store } from '@/stores/useB50Store';
+import { useAnalysisStore } from '@/stores/useAnalysisStore';
+import { useTagStore } from '@/stores/useTagStore';
 
 // ---- MCP-Format 工具定义 ----
 export interface MCPTool {
@@ -67,6 +69,27 @@ export const AI_TOOLS: MCPTool[] = [
         type: { type: 'string', description: 'DX 或 SD' },
         maxResults: { type: 'number', description: '最多返回条数，默认10', default: 10 },
       },
+    },
+  },
+  {
+    name: 'get_b50_analysis',
+    description:
+      '获取玩家已生成的 B50 能力分析（六维评分 + 结构 + 亮点谱面）。' +
+      '若返回 not_generated，说明玩家还没点过「生成 B50 能力分析」，此时应提示玩家先点击该按钮。',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_chart_tags',
+    description:
+      '查询某谱面的社区标注（DXRating 众包 tag，如「水」「诈称谱」「交互」「纵连」）。' +
+      'songId 为数字曲目 ID，difficulty 取 basic/advanced/expert/master/remaster。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        songId: { type: 'number', description: '数字曲目 ID' },
+        difficulty: { type: 'string', description: '难度: basic/advanced/expert/master/remaster' },
+      },
+      required: ['songId'],
     },
   },
   {
@@ -178,6 +201,76 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
         title: s.title, artist: s.artist, type: s.type, bpm: s.bpm,
         constants: { Basic: s.basicConst, Advanced: s.advancedConst, Expert: s.expertConst, Master: s.masterConst, ReM: s.remasterConst },
       })));
+    }
+
+    case 'get_b50_analysis': {
+      const analysis = useAnalysisStore();
+      const r = analysis.result;
+      if (!r) {
+        return JSON.stringify({
+          status: 'not_generated',
+          message:
+            '玩家尚未生成 B50 能力分析。请提示玩家点击聊天面板上方的「生成 B50 能力分析」按钮，' +
+            '生成后即可基于结果继续对话。',
+        });
+      }
+      const brief = (c: (typeof r.charts)[number]) => ({
+        title: c.title, type: c.type, difficulty: c.difficulty, constant: c.constant,
+        achievements: Number(c.achievements.toFixed(2)), ownDelta: c.ownDelta,
+        waterIndex: c.waterIndex, waterZ: c.waterZ, tags: c.tagNames,
+      });
+      return JSON.stringify({
+        status: 'ok',
+        generatedAt: r.generatedAt,
+        playerRating: r.playerRating,
+        baseline: r.baseline,
+        baselineCoverage: r.baselineCoverage,
+        tagAvailable: r.tagAvailable,
+        peerStatsAvailable: r.peerStatsAvailable,
+        note:
+          'peerStatsAvailable=false → 同段（同水平玩家）聚合基准不可用，' +
+          '禁止任何「高于/低于同段平均」类断言。ownDelta 是玩家 B50 内部对比，不是跨玩家比较。',
+        dimensions: r.dimensions.map(d => ({
+          id: d.id, label: d.label, score: d.score, rawLabel: d.rawLabel, insufficient: !!d.insufficient,
+        })),
+        structure: r.structure,
+        headline: r.headline,
+        highlights: {
+          water: r.highlights.waterCharts.slice(0, 6).map(brief),
+          underrated: r.highlights.underratedCharts.slice(0, 6).map(brief),
+          weak: r.highlights.weakCharts.slice(0, 8).map(brief),
+          strong: r.highlights.strongCharts.slice(0, 5).map(brief),
+        },
+        charts: r.charts.map(brief),
+      });
+    }
+
+    case 'get_chart_tags': {
+      const songId = Number(args.songId);
+      const difficulty = String(args.difficulty ?? 'master').toLowerCase();
+      if (!Number.isFinite(songId) || songId <= 0) {
+        return JSON.stringify({ error: 'songId 无效' });
+      }
+      const tagStore = useTagStore();
+      if (!tagStore.isReady) {
+        await tagStore.load(false);
+      }
+      if (!tagStore.isReady) {
+        return JSON.stringify({ status: 'unavailable', message: '社区标注数据暂不可用（已静默降级）' });
+      }
+      const songStore = useSongStore();
+      if (songStore.songs.size === 0) await songStore.loadFromDB();
+      const song = songStore.songs.get(songId);
+      const tags = tagStore.getTags(songId, difficulty);
+      return JSON.stringify({
+        status: 'ok',
+        title: song?.title ?? `#${songId}`,
+        type: song?.type ?? null,
+        difficulty,
+        tagCount: tags.length,
+        tags: tags.map(t => ({ name: t.name, nameEn: t.nameEn, group: t.groupName, description: t.description })),
+        source: 'DXRating 社区标注（众包人工标注，非官方）',
+      });
     }
 
     case 'web_search': {

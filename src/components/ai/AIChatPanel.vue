@@ -4,13 +4,19 @@
     <div ref="messageContainer" class="messages-area">
       <div v-if="chatStore.messages.length === 0" class="empty-state">
         <p class="text-text-muted text-xs">在此与 AI 教练对话</p>
-        <p class="text-text-muted text-xs mt-1">点击"请求教练分析"或直接输入问题</p>
+        <p class="text-text-muted text-xs mt-1">点击下方「生成 B50 能力分析」，或直接输入问题</p>
       </div>
 
       <!-- 核心记忆指示器 -->
       <div v-if="chatStore.summaryMemory" class="memory-indicator">
         <span class="memory-icon">🧠</span>
         <span class="memory-text">{{ chatStore.summaryMemory }}</span>
+      </div>
+
+      <!-- L2 分析快照指示器 —— 提示分析结论已进入上下文 -->
+      <div v-if="chatStore.analysisSnapshot" class="snapshot-indicator">
+        <span class="snapshot-icon">📊</span>
+        <span class="snapshot-text">B50 分析快照已载入上下文，可直接追问</span>
       </div>
 
       <div v-for="(msg, i) in chatStore.messages" :key="i" class="message-row" :class="msg.role">
@@ -51,23 +57,20 @@
 
     <!-- 输入区域 -->
     <div class="input-area">
-      <div class="flex gap-2 mb-2">
-        <button
-          class="coach-btn"
-          :disabled="chatStore.isStreaming"
-          @click="$emit('coach')"
-        >
-          请求教练分析
-        </button>
-        <button
-          v-if="chatStore.messages.length > 0"
-          class="clear-memory-btn"
-          @click="chatStore.clearMessages()"
-          title="清空对话与记忆"
-        >
-          🗑
-        </button>
+      <!-- AI 教练分析入口 —— 未分析时是按钮，分析后变成六维雷达图结果卡 -->
+      <div v-if="!cardCollapsed" class="coach-card-wrap">
+        <CoachAnalysisCard
+          @analyze="$emit('coach')"
+          @reanalyze="$emit('reanalyze')"
+          @ask="$emit('send', $event)"
+          @collapse="cardCollapsed = true"
+        />
       </div>
+      <button v-else class="card-collapsed-bar" @click="cardCollapsed = false">
+        <span class="ccb-title">📊 B50 能力分析</span>
+        <span class="ccb-action">展开</span>
+      </button>
+
       <div class="flex gap-2 mt-2">
         <input
           v-model="inputText"
@@ -83,6 +86,15 @@
         >
           发送
         </button>
+        <button
+          v-if="chatStore.messages.length > 0"
+          class="clear-memory-btn"
+          :disabled="chatStore.isStreaming"
+          @click="chatStore.clearMessages()"
+          title="清空对话与记忆"
+        >
+          🗑
+        </button>
       </div>
     </div>
   </div>
@@ -91,11 +103,15 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue';
 import { useAIChatStore } from '@/stores/useAIChatStore';
+import CoachAnalysisCard from '@/components/ai/CoachAnalysisCard.vue';
 import { db } from '@/services/db';
 import { marked } from 'marked';
 
 const emit = defineEmits<{
+  /** 生成 B50 能力分析 */
   coach: [];
+  /** 强制刷新基准后重新分析 */
+  reanalyze: [];
   send: [text: string];
 }>();
 
@@ -103,6 +119,8 @@ const chatStore = useAIChatStore();
 const inputText = ref('');
 const messageContainer = ref<HTMLElement | null>(null);
 const openThinking = ref(new Set<number>());
+/** 分析卡片是否被用户收起 */
+const cardCollapsed = ref(false);
 
 /** 判断某条消息是否正在流式输出中 */
 function isStreamingMsg(index: number): boolean {
@@ -292,30 +310,34 @@ watch(
   border-top: 1px solid var(--bg-hover);
 }
 
-.coach-btn {
-  width: 100%;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid var(--color-primary);
-  background-color: transparent;
-  color: var(--color-primary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.15s;
+/* ===== 分析卡片容器 ===== */
+.coach-card-wrap {
+  margin-bottom: 10px;
+  max-height: 62vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+.coach-card-wrap::-webkit-scrollbar { width: 5px; }
+.coach-card-wrap::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,0.35); border-radius: 999px;
 }
 
-.coach-btn:hover:not(:disabled) {
-  background-color: rgba(99, 102, 241, 0.1);
+.card-collapsed-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; margin-bottom: 10px;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid rgba(74,114,255,0.18);
+  background: rgba(74,114,255,0.05);
+  cursor: pointer; transition: all var(--transition-fast);
 }
-
-.coach-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.card-collapsed-bar:hover { background: rgba(74,114,255,0.1); }
+.ccb-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.ccb-action { font-size: 11px; color: var(--color-primary); }
 
 .chat-input {
   flex: 1;
+  min-width: 0;
   background-color: var(--bg-primary);
   border: 1px solid var(--bg-hover);
   border-radius: 6px;
@@ -390,14 +412,26 @@ watch(
 .memory-icon { flex-shrink: 0; font-size: 14px; }
 .memory-text { color: var(--text-secondary); }
 
+/* ===== L2 分析快照指示器 ===== */
+.snapshot-indicator {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; margin-bottom: 8px;
+  background: rgba(74,114,255,0.06); border: 1px solid rgba(74,114,255,0.16);
+  border-radius: 8px; font-size: 11px;
+}
+.snapshot-icon { flex-shrink: 0; font-size: 13px; }
+.snapshot-text { color: var(--text-secondary); }
+
 /* ===== 清空按钮 ===== */
 .clear-memory-btn {
-  padding: 6px 10px; border-radius: 6px;
+  flex-shrink: 0;
+  padding: 8px 10px; border-radius: 6px;
   border: 1px solid var(--border-color);
   background: var(--bg-card); font-size: 14px;
   cursor: pointer; transition: all var(--transition-fast);
 }
-.clear-memory-btn:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+.clear-memory-btn:hover:not(:disabled) { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+.clear-memory-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ===== 思考链 ===== */
 .thinking-section {

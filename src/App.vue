@@ -49,7 +49,12 @@
             :songId="selectedSongId"
             @back="activeTab = songDetailOrigin"
           />
-          <AIChatPanel v-else-if="activeTab === 'ai'" @coach="handleAICoach" @send="handleAISend" />
+          <AIChatPanel
+            v-else-if="activeTab === 'ai'"
+            @coach="handleAICoach"
+            @reanalyze="handleAIReanalyze"
+            @send="handleAISend"
+          />
           <SettingsView v-else-if="activeTab === 'settings'" />
           <div v-else class="p-8 text-center text-text-muted">即将推出</div>
         </main>
@@ -93,7 +98,7 @@ const songStore = useSongStore();
 const playLogStore = usePlayLogStore();
 const b50Store = useB50Store();
 const { startSync } = useProberSync();
-const { sendMessage, coachAnalysis } = useAICoach();
+const { sendMessage, requestAnalysis, reanalyze } = useAICoach();
 
 onMounted(async () => {
   useSettingsStore().checkSettings();
@@ -136,7 +141,8 @@ function handleSelectSong(songId: number) {
   activeTab.value = 'song-detail';
 }
 
-function handleAICoach() { coachAnalysis(); }
+function handleAICoach() { requestAnalysis(); }
+function handleAIReanalyze() { reanalyze(); }
 function handleAISend(text: string) { sendMessage(text); }
 </script>
 

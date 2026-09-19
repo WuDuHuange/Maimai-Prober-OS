@@ -7,6 +7,12 @@ export const useAIChatStore = defineStore('aiChat', () => {
   const isStreaming = ref(false);
   /** 核心记忆 — 定期由 AI 总结的长期目标/状态 */
   const summaryMemory = ref('');
+  /**
+   * L2 分析快照 —— 由本地算法产出的 B50 分析，渲染成结构化文本。
+   * 一旦生成就**一直保留**，后续每轮对话都带上它（上下文锚点）。
+   * 只有重新分析或清空对话时才被替换 / 清除。
+   */
+  const analysisSnapshot = ref('');
 
   function addMessage(msg: Omit<ChatMessage, 'timestamp'>) {
     messages.value.push({ ...msg, timestamp: new Date().toISOString() });
@@ -30,11 +36,17 @@ export const useAIChatStore = defineStore('aiChat', () => {
   function clearMessages() {
     messages.value = [];
     summaryMemory.value = '';
+    analysisSnapshot.value = '';
   }
 
   /** 设置核心记忆 */
   function setSummaryMemory(text: string) {
     summaryMemory.value = text;
+  }
+
+  /** 写入 / 替换 L2 分析快照（传空串即清除） */
+  function setAnalysisSnapshot(text: string) {
+    analysisSnapshot.value = text;
   }
 
   /** 获取最近 N 条对话历史（user + assistant） */
@@ -46,8 +58,8 @@ export const useAIChatStore = defineStore('aiChat', () => {
   }
 
   return {
-    messages, isStreaming, summaryMemory,
+    messages, isStreaming, summaryMemory, analysisSnapshot,
     addMessage, appendToLastMessage, appendThinking, clearMessages,
-    setSummaryMemory, getRecentHistory,
+    setSummaryMemory, setAnalysisSnapshot, getRecentHistory,
   };
 });

@@ -16,7 +16,7 @@
     </div>
 
     <div class="ai-message">
-      连接 AI 服务后可获得个性化的底力缺陷诊断和针对性练习曲推荐.
+      六维能力分析在本地完成，不消耗 AI 额度；到「AI复盘」页点一下即可生成。
     </div>
 
     <div class="robot-float">R</div>
