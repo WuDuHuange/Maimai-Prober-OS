@@ -103,8 +103,10 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue';
 import { useAIChatStore } from '@/stores/useAIChatStore';
+import { useSongStore } from '@/stores/useSongStore';
 import CoachAnalysisCard from '@/components/ai/CoachAnalysisCard.vue';
 import { db } from '@/services/db';
+import { extractPlanSongs } from '@/utils/practicePlan';
 import { marked } from 'marked';
 
 const emit = defineEmits<{
@@ -178,11 +180,16 @@ async function saveAsPlan(content: string) {
       try { plans = JSON.parse(existing.value); } catch { plans = []; }
     }
 
+    // 从 AI 回复里把被点名的曲目捞出来，否则歌曲胶囊永远是空的
+    const songStore = useSongStore();
+    if (songStore.songs.size === 0) await songStore.loadFromDB();
+    const songs = extractPlanSongs(content, songStore.songs);
+
     const newPlan = {
       id: Date.now(),
       createdAt: new Date().toISOString(),
       summary: content.slice(0, 500),
-      songs: [],
+      songs,
     };
 
     plans.unshift(newPlan);
@@ -191,7 +198,11 @@ async function saveAsPlan(content: string) {
       value: JSON.stringify(plans),
       updatedAt: new Date().toISOString(),
     });
-    alert('练习计划已保存');
+    // 通知右侧栏刷新练习计划卡片
+    window.dispatchEvent(new CustomEvent('practice-plan-updated'));
+    alert(songs.length > 0
+      ? `练习计划已保存（识别到 ${songs.length} 首曲目）`
+      : '练习计划已保存（未从回复中识别到曲目，可在右侧栏查看全文）');
   } catch (err: any) {
     console.error('保存练习计划失败:', err);
   }

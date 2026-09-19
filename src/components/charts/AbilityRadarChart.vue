@@ -111,14 +111,25 @@ function render() {
 
 function resize() { chart?.resize(); }
 
+let ro: ResizeObserver | null = null;
+
 onMounted(async () => {
   await nextTick();
   render();
   window.addEventListener('resize', resize);
+  // echarts 只监听 window.resize —— 容器自身宽度变化不会触发重绘。
+  // 侧栏折叠/展开、容器查询降级、flex 重新分配宽度都属于这一类，
+  // 表现是 canvas 宽度恒为 0（图表整片空白），且永远不会自愈。
+  if (typeof ResizeObserver !== 'undefined' && chartEl.value) {
+    ro = new ResizeObserver(() => resize());
+    ro.observe(chartEl.value);
+  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize);
+  ro?.disconnect();
+  ro = null;
   chart?.dispose();
   chart = null;
 });

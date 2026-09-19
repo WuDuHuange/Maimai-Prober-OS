@@ -12,6 +12,9 @@ export const usePlayLogStore = defineStore('playLog', () => {
     const all = await db.playLogs.toArray();
     records.value = all;
     totalCount.value = all.length;
+    // 同步时间写在 localStorage 里，不跟着 loadFromDB 刷新的话
+    // 右侧栏的「数据新鲜度」会一直停在首次加载时的旧值
+    lastSyncTime.value = localStorage.getItem('last_sync_time');
   }
 
   async function getSongHistory(songId: number, difficulty: string): Promise<PlayRecord[]> {

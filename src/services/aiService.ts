@@ -4,7 +4,7 @@
  */
 import { decrypt, encrypt } from './cryptoService';
 
-export type AIProvider = 'gemini' | 'openai' | 'deepseek' | 'claude';
+export type AIProvider = 'gemini' | 'openai' | 'deepseek' | 'claude' | 'custom';
 
 // ---- 模型预设 ----
 export interface ModelPreset {
@@ -63,20 +63,24 @@ export interface AIConfig {
   provider: AIProvider;
   apiKey: string;
   model: string;
+  /** 仅 `provider === 'custom'` 时有值：OpenAI 兼容的 base URL */
+  baseUrl?: string;
 }
 
-const STORAGE_KEYS: Record<AIProvider, string> = {
+export const STORAGE_KEYS: Record<AIProvider, string> = {
   gemini: 'gemini_key_enc',
   openai: 'openai_key_enc',
   deepseek: 'deepseek_key_enc',
   claude: 'claude_key_enc',
+  custom: 'custom_key_enc',
 };
 
-const MODEL_KEYS: Record<AIProvider, string> = {
+export const MODEL_KEYS: Record<AIProvider, string> = {
   gemini: 'gemini_model',
   openai: 'openai_model',
   deepseek: 'deepseek_model',
   claude: 'claude_model',
+  custom: 'custom_model',
 };
 
 const DEFAULT_MODELS: Record<AIProvider, string> = {
@@ -84,7 +88,40 @@ const DEFAULT_MODELS: Record<AIProvider, string> = {
   openai: 'gpt-4o-mini',
   deepseek: 'deepseek-chat',
   claude: 'claude-sonnet-4-20250514',
+  custom: '',
 };
+
+/** 自定义供应商的 OpenAI 兼容 base URL（如 https://api.example.com/v1） */
+export const CUSTOM_BASE_URL_KEY = 'custom_base_url';
+
+export function getCustomBaseUrl(): string {
+  return localStorage.getItem(CUSTOM_BASE_URL_KEY) ?? '';
+}
+
+export function setCustomBaseUrl(url: string) {
+  const cleaned = url.trim().replace(/\/+$/, '');
+  if (cleaned) localStorage.setItem(CUSTOM_BASE_URL_KEY, cleaned);
+  else localStorage.removeItem(CUSTOM_BASE_URL_KEY);
+}
+
+/**
+ * 解析某配置对应的 OpenAI 兼容 chat/completions 端点。
+ * `custom` 走用户填的 base URL；其余返回空串（它们各有专用端点）。
+ */
+export function resolveChatEndpoint(config: AIConfig): string {
+  switch (config.provider) {
+    case 'openai':
+      return 'https://api.openai.com/v1/chat/completions';
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1/chat/completions';
+    case 'custom': {
+      const base = (config.baseUrl ?? '').replace(/\/+$/, '');
+      return base ? `${base}/chat/completions` : '';
+    }
+    default:
+      return '';
+  }
+}
 
 /** 获取当前激活的 AI 配置 */
 export function getActiveAIConfig(): AIConfig | null {
@@ -96,6 +133,13 @@ export function getActiveAIConfig(): AIConfig | null {
 
   const apiKey = decrypt(encKey);
   const model = decrypt(localStorage.getItem(MODEL_KEYS[active]) ?? '') || DEFAULT_MODELS[active];
+
+  // 自定义供应商必须填了 base URL 才算配置完整
+  if (active === 'custom') {
+    const baseUrl = getCustomBaseUrl();
+    if (!baseUrl) return null;
+    return { provider: active, apiKey, model, baseUrl };
+  }
 
   return { provider: active, apiKey, model };
 }
@@ -278,18 +322,18 @@ export async function streamAIChat(
   switch (config.provider) {
     case 'gemini':
       return callGeminiStream(config, systemPrompt, userMessage, onChunk, onThinking, signal);
-    case 'openai':
-      return callOpenAICompatibleStream(
-        config, 'https://api.openai.com/v1/chat/completions',
-        systemPrompt, userMessage, onChunk, onThinking, signal
-      );
-    case 'deepseek':
-      return callOpenAICompatibleStream(
-        config, 'https://api.deepseek.com/v1/chat/completions',
-        systemPrompt, userMessage, onChunk, onThinking, signal
-      );
     case 'claude':
       return callClaudeStream(config, systemPrompt, userMessage, onChunk, signal);
+    case 'openai':
+    case 'deepseek':
+    case 'custom': {
+      const endpoint = resolveChatEndpoint(config);
+      if (!endpoint) throw new Error('自定义供应商缺少 Base URL，请到设置中填写');
+      return callOpenAICompatibleStream(
+        config, endpoint,
+        systemPrompt, userMessage, onChunk, onThinking, signal
+      );
+    }
     default:
       throw new Error(`不支持的 AI 供应商: ${config.provider}`);
   }
@@ -417,10 +461,10 @@ async function streamAIChatRaw(
       return;
     }
     case 'deepseek':
-    case 'openai': {
-      const endpoint = config.provider === 'openai'
-        ? 'https://api.openai.com/v1/chat/completions'
-        : 'https://api.deepseek.com/v1/chat/completions';
+    case 'openai':
+    case 'custom': {
+      const endpoint = resolveChatEndpoint(config);
+      if (!endpoint) throw new Error('自定义供应商缺少 Base URL，请到设置中填写');
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
@@ -551,10 +595,14 @@ export async function testAIConnection(provider: AIProvider, apiKey: string, mod
         return { ok: true, message: '连接成功 ✓' };
       }
       case 'openai':
-      case 'deepseek': {
-        const endpoint = provider === 'openai'
-          ? 'https://api.openai.com/v1/chat/completions'
-          : 'https://api.deepseek.com/v1/chat/completions';
+      case 'deepseek':
+      case 'custom': {
+        const endpoint = resolveChatEndpoint({
+          provider, apiKey, model, baseUrl: getCustomBaseUrl(),
+        });
+        if (!endpoint) {
+          return { ok: false, message: '请先填写自定义 Base URL（如 https://api.example.com/v1）' };
+        }
         const resp = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -662,36 +710,102 @@ async function fetchOpenAIModels(apiKey: string): Promise<RemoteModelEntry[]> {
     .map((m: any) => ({ id: m.id, label: m.id, provider: 'openai' as AIProvider }));
 }
 
+/** 从 DeepSeek API 获取可用模型列表（OpenAI 兼容端点 `GET /models`） */
+async function fetchDeepSeekModels(apiKey: string): Promise<RemoteModelEntry[]> {
+  const resp = await fetch('https://api.deepseek.com/models', {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  const models: any[] = data.data || [];
+  return models
+    .filter((m: any) => m.id)
+    .map((m: any) => ({ id: m.id, label: m.id, provider: 'deepseek' as AIProvider }));
+}
+
+/** 从 Anthropic API 获取可用模型列表（`GET /v1/models`） */
+async function fetchClaudeModels(apiKey: string): Promise<RemoteModelEntry[]> {
+  const resp = await fetch('https://api.anthropic.com/v1/models?limit=50', {
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      // 浏览器直连 Anthropic 需要显式声明，否则被 CORS 拦掉
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  const models: any[] = data.data || [];
+  return models
+    .filter((m: any) => m.id)
+    .map((m: any) => ({
+      id: m.id,
+      label: m.display_name || m.id,
+      provider: 'claude' as AIProvider,
+    }));
+}
+
+/** 从自定义 OpenAI 兼容端点获取模型列表（`{base}/models`） */
+async function fetchCustomModels(baseUrl: string, apiKey: string): Promise<RemoteModelEntry[]> {
+  const base = (baseUrl || '').replace(/\/+$/, '');
+  if (!base) return [];
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  const resp = await fetch(`${base}/models`, {
+    headers,
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  // OpenAI 风格是 { data: [...] }，部分自建网关返回 { models: [...] }
+  const models: any[] = data.data || data.models || [];
+  return models
+    .filter((m: any) => m.id || m.name)
+    .slice(0, 60)
+    .map((m: any) => {
+      const id = m.id || String(m.name).replace('models/', '');
+      return {
+        id,
+        label: m.display_name || m.displayName || id,
+        provider: 'custom' as AIProvider,
+      };
+    });
+}
+
 /** 联网获取所有已配置供应商的最新模型列表 */
 export async function fetchRemoteModels(): Promise<{ models: RemoteModelEntry[]; updatedAt: string }> {
-  const providers: { provider: AIProvider; key: string }[] = [];
-  const keyMap: Record<string, string> = {
-    gemini: 'gemini_key_enc', openai: 'openai_key_enc',
-    deepseek: 'deepseek_key_enc', claude: 'claude_key_enc',
-  };
-
-  for (const [provider, storageKey] of Object.entries(keyMap)) {
-    const enc = localStorage.getItem(storageKey);
-    if (enc) {
-      try {
-        providers.push({ provider: provider as AIProvider, key: decrypt(enc) });
-      } catch { /* skip broken config */ }
-    }
-  }
-
   const allModels: RemoteModelEntry[] = [];
 
-  for (const { provider, key } of providers) {
+  for (const provider of Object.keys(STORAGE_KEYS) as AIProvider[]) {
+    const enc = localStorage.getItem(STORAGE_KEYS[provider]);
+    let key = '';
+    if (enc) {
+      try { key = decrypt(enc); } catch { continue; /* 配置损坏，跳过 */ }
+    }
+    // custom 允许无 key（自建网关常常不鉴权），其余供应商必须有 key
+    if (!key && provider !== 'custom') continue;
+
     try {
-      if (provider === 'gemini') {
-        const models = await fetchGeminiModels(key);
-        allModels.push(...models);
-      } else if (provider === 'openai') {
-        const models = await fetchOpenAIModels(key);
-        allModels.push(...models);
+      switch (provider) {
+        case 'gemini':
+          allModels.push(...await fetchGeminiModels(key));
+          break;
+        case 'openai':
+          allModels.push(...await fetchOpenAIModels(key));
+          break;
+        case 'deepseek':
+          allModels.push(...await fetchDeepSeekModels(key));
+          break;
+        case 'claude':
+          allModels.push(...await fetchClaudeModels(key));
+          break;
+        case 'custom':
+          allModels.push(...await fetchCustomModels(getCustomBaseUrl(), key));
+          break;
       }
-      // DeepSeek / Claude don't have public model list endpoints
-    } catch { /* skip failed provider */ }
+    } catch { /* 单个供应商失败不影响其余 */ }
   }
 
   // 合并内置预设（去重，远程优先）

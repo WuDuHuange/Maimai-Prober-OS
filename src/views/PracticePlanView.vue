@@ -1,9 +1,19 @@
 <template>
-  <div class="practice-plan p-4 overflow-y-auto h-full">
-    <h1 class="text-lg font-bold text-text-primary mb-4">练习计划</h1>
+  <div class="practice-plan p-6 overflow-y-auto h-full">
+    <div class="plan-header">
+      <button class="back-btn" @click="emit('back')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+        返回
+      </button>
+      <h1 class="text-lg font-bold text-text-primary">练习计划</h1>
+      <span v-if="plans.length" class="count-tag">{{ plans.length }}</span>
+    </div>
 
-    <div v-if="plans.length === 0" class="text-text-muted text-sm text-center py-12">
-      暂无练习计划。<br/>可在 AI 教练面板中请求分析后保存推荐。
+    <div v-if="plans.length === 0" class="empty-hint">
+      暂无练习计划。<br />
+      到「AI复盘」页生成能力分析，再点回复卡片上的「保存为练习计划」。
     </div>
 
     <div v-for="(plan, idx) in plans" :key="plan.id ?? idx" class="plan-card">
@@ -12,23 +22,23 @@
         <button class="delete-btn" @click="deletePlan(plan.id!)">删除</button>
       </div>
       <div class="text-sm text-text-primary whitespace-pre-wrap mb-3">{{ plan.summary }}</div>
-      <div v-if="plan.songs.length > 0" class="flex flex-wrap gap-2">
+      <div v-if="plan.songs?.length" class="flex flex-wrap gap-2">
         <span
           v-for="s in plan.songs"
           :key="s.songId"
           class="song-chip"
-          @click="goToSong(s.songId)"
+          @click="emit('select-song', s.songId)"
         >
-          {{ s.title }} ({{ s.constant?.toFixed(1) ?? '?' }})
+          {{ s.title }}<span class="chip-const">{{ s.constant?.toFixed(1) ?? '?' }}</span>
         </span>
       </div>
+      <p v-else class="text-xs text-text-muted">（该计划未从 AI 回复中识别到具体曲目）</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { db } from '@/services/db';
 
 interface PracticePlanItem {
@@ -38,7 +48,12 @@ interface PracticePlanItem {
   songs: Array<{ songId: number; title: string; constant: number | null }>;
 }
 
-const router = useRouter();
+const emit = defineEmits<{
+  /** 点歌曲胶囊 → 由 App.vue 统一跳转到曲目详情 */
+  'select-song': [songId: number];
+  back: [];
+}>();
+
 const plans = ref<PracticePlanItem[]>([]);
 
 // Load plans from app_settings
@@ -66,14 +81,52 @@ async function deletePlan(id: number) {
     value: JSON.stringify(plans.value),
     updatedAt: new Date().toISOString(),
   });
-}
-
-function goToSong(songId: number) {
-  router.push(`/song/${songId}`);
+  window.dispatchEvent(new CustomEvent('practice-plan-updated'));
 }
 </script>
 
 <style scoped>
+.plan-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background var(--transition-fast);
+}
+
+.back-btn:hover { background: rgba(74, 114, 255, 0.06); }
+
+.count-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-tag, rgba(74, 114, 255, 0.08));
+  color: var(--color-primary);
+}
+
+.empty-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.9;
+  text-align: center;
+  padding: 48px 0;
+}
+
 .plan-card {
   background-color: var(--bg-secondary);
   border-radius: 8px;
@@ -82,7 +135,9 @@ function goToSong(songId: number) {
 }
 
 .song-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 10px;
   border-radius: 12px;
   font-size: 12px;
@@ -92,8 +147,12 @@ function goToSong(songId: number) {
   transition: background-color 0.15s;
 }
 
-.song-chip:hover {
-  background-color: var(--bg-hover);
+.song-chip:hover { background-color: var(--bg-hover); }
+
+.chip-const {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
 }
 
 .delete-btn {

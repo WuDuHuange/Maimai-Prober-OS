@@ -48,14 +48,28 @@
           <span class="text-xs text-text-muted">API Key</span>
           <span v-if="remoteUpdatedAt" class="text-xs text-text-muted">模型列表更新于 {{ fmtTime(remoteUpdatedAt) }}</span>
         </div>
+
+        <!-- 自定义供应商：OpenAI 兼容 Base URL -->
+        <div v-if="activeProvider === 'custom'" class="mb-2">
+          <input
+            v-model="customBaseUrlInput"
+            class="setting-input w-full"
+            placeholder="Base URL，例如 https://api.deepseek.com/v1"
+          />
+          <p class="text-xs text-text-muted mt-1 leading-relaxed">
+            需为 OpenAI 兼容端点：会自动拼 <code class="inline-code">/chat/completions</code>（对话）
+            与 <code class="inline-code">/models</code>（模型列表）。适用于 One-API、Ollama、vLLM、各类中转站。
+          </p>
+        </div>
+
         <div class="flex gap-2 mb-2">
           <input
             v-model="aiKeyInput"
             type="password"
             class="setting-input flex-1"
-            :placeholder="`输入 ${activeProvider} API Key`"
+            :placeholder="activeProvider === 'custom' ? 'API Key（自建端点可留空）' : `输入 ${activeProvider} API Key`"
           />
-          <button class="btn primary" @click="handleSaveAI" :disabled="!aiKeyInput.trim()">保存</button>
+          <button class="btn primary" @click="handleSaveAI" :disabled="!canSave">保存</button>
         </div>
 
         <!-- 模型选择 -->
@@ -87,10 +101,14 @@
 
         <!-- 操作按钮 -->
         <div class="flex gap-2 mt-3 items-center">
-          <button class="btn" @click="handleTestAI" :disabled="aiTestLoading || !aiKeyInput.trim()">
+          <button class="btn" @click="handleTestAI" :disabled="aiTestLoading || !canSave">
             {{ aiTestLoading ? '测试中...' : '🔗 测试连接' }}
           </button>
-          <button class="btn" @click="handleRemoveAI" v-if="aiKeyInput">移除配置</button>
+          <button
+            class="btn"
+            @click="handleRemoveAI"
+            v-if="aiKeyInput || (activeProvider === 'custom' && customBaseUrlInput)"
+          >移除配置</button>
           <span v-if="aiTestResult" class="test-result text-xs" :class="aiTestResult.ok ? 'text-success' : 'text-danger'">
             {{ aiTestResult.message }}
           </span>
@@ -119,11 +137,15 @@ import {
   type AIProvider,
   type ModelPreset,
   MODEL_PRESETS,
+  STORAGE_KEYS,
+  MODEL_KEYS,
   saveAIConfig,
   removeAIConfig,
   testAIConnection,
   fetchRemoteModels,
   getCachedRemoteModels,
+  getCustomBaseUrl,
+  setCustomBaseUrl,
   loadModelPresets,
   type RemoteModelEntry,
 } from '@/services/aiService';
@@ -139,6 +161,8 @@ const importTokenStatus = ref<{ text: string; color: string } | null>(null);
 const activeProvider = ref<AIProvider>('gemini');
 const aiKeyInput = ref('');
 const aiModelInput = ref('');
+/** 仅 `custom` 使用：OpenAI 兼容的 base URL */
+const customBaseUrlInput = ref('');
 const aiTestResult = ref<{ ok: boolean; message: string } | null>(null);
 const aiTestLoading = ref(false);
 
@@ -163,48 +187,67 @@ const providerDefs: { key: AIProvider; label: string; desc: string }[] = [
   { key: 'openai', label: 'OpenAI', desc: 'GPT-4o / GPT-4.1 等' },
   { key: 'deepseek', label: 'DeepSeek', desc: 'DeepSeek V3 / R1' },
   { key: 'claude', label: 'Anthropic Claude', desc: 'Claude Sonnet 4 / Haiku' },
+  { key: 'custom', label: '自定义', desc: '任意 OpenAI 兼容端点（One-API / Ollama / vLLM / 中转站）' },
 ];
 
+/** 已保存过 API Key 的供应商（custom 还要求填了 Base URL） */
 const configuredProviders = computed(() =>
-  providerDefs.filter(p => !!localStorage.getItem(`ai_key_${p.key}`.replace('ai_key_', p.key === 'gemini' ? 'gemini_key_enc' : p.key === 'openai' ? 'openai_key_enc' : p.key === 'deepseek' ? 'deepseek_key_enc' : 'claude_key_enc')))
+  providerDefs.filter(p => {
+    if (!localStorage.getItem(STORAGE_KEYS[p.key])) return false;
+    if (p.key === 'custom') return !!getCustomBaseUrl();
+    return true;
+  })
+);
+
+/** custom 允许留空 API Key（自建网关常常不鉴权） */
+const canSave = computed(() =>
+  activeProvider.value === 'custom'
+    ? !!customBaseUrlInput.value.trim()
+    : !!aiKeyInput.value.trim()
 );
 
 function selectProvider(p: AIProvider) {
   activeProvider.value = p;
   aiTestResult.value = null;
-  // 恢复已保存的配置
-  const keyMap: Record<string, string> = {
-    gemini: 'gemini_key_enc', openai: 'openai_key_enc',
-    deepseek: 'deepseek_key_enc', claude: 'claude_key_enc',
-  };
-  const modelMap: Record<string, string> = {
-    gemini: 'gemini_model', openai: 'openai_model',
-    deepseek: 'deepseek_model', claude: 'claude_model',
-  };
-  const encKey = localStorage.getItem(keyMap[p]);
+  // 恢复已保存的配置（key map 统一来自 aiService，避免各处硬编码）
+  const encKey = localStorage.getItem(STORAGE_KEYS[p]);
   aiKeyInput.value = encKey ? decrypt(encKey) : '';
-  const encModel = localStorage.getItem(modelMap[p]);
+  const encModel = localStorage.getItem(MODEL_KEYS[p]);
   aiModelInput.value = encModel ? decrypt(encModel) : '';
+  customBaseUrlInput.value = getCustomBaseUrl();
 }
 
 async function handleSaveAI() {
-  if (!aiKeyInput.value.trim()) {
-    aiTestResult.value = { ok: false, message: '请输入 API Key' };
+  if (!canSave.value) {
+    aiTestResult.value = {
+      ok: false,
+      message: activeProvider.value === 'custom' ? '请填写 Base URL' : '请输入 API Key',
+    };
     return;
   }
-  const model = aiModelInput.value.trim() || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id || '';
+  if (activeProvider.value === 'custom') setCustomBaseUrl(customBaseUrlInput.value);
+  const model = aiModelInput.value.trim()
+    || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id
+    || '';
   saveAIConfig(activeProvider.value, aiKeyInput.value.trim(), model);
   aiTestResult.value = { ok: true, message: '配置已保存 ✓' };
 }
 
 async function handleTestAI() {
-  if (!aiKeyInput.value.trim()) {
-    aiTestResult.value = { ok: false, message: '请先输入 API Key' };
+  if (!canSave.value) {
+    aiTestResult.value = {
+      ok: false,
+      message: activeProvider.value === 'custom' ? '请先填写 Base URL' : '请先输入 API Key',
+    };
     return;
   }
   aiTestLoading.value = true;
   aiTestResult.value = null;
-  const model = aiModelInput.value.trim() || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id || '';
+  // 测试前先把 Base URL 落盘，testAIConnection 会读它
+  if (activeProvider.value === 'custom') setCustomBaseUrl(customBaseUrlInput.value);
+  const model = aiModelInput.value.trim()
+    || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id
+    || '';
   const result = await testAIConnection(activeProvider.value, aiKeyInput.value.trim(), model);
   aiTestResult.value = result;
   aiTestLoading.value = false;
@@ -212,8 +255,10 @@ async function handleTestAI() {
 
 function handleRemoveAI() {
   removeAIConfig(activeProvider.value);
+  if (activeProvider.value === 'custom') setCustomBaseUrl('');
   aiKeyInput.value = '';
   aiModelInput.value = '';
+  customBaseUrlInput.value = '';
   aiTestResult.value = { ok: true, message: '配置已移除' };
 }
 
@@ -223,6 +268,17 @@ async function handleRefreshModels() {
     const result = await fetchRemoteModels();
     remoteModels.value = result.models;
     remoteUpdatedAt.value = result.updatedAt;
+    const mine = result.models.filter(m => m.provider === activeProvider.value).length;
+    if (mine === 0) {
+      aiTestResult.value = {
+        ok: false,
+        message: activeProvider.value === 'custom'
+          ? '未拉到模型：请先填写并保存 Base URL'
+          : '未拉到模型：请先保存该供应商的 API Key',
+      };
+    } else {
+      aiTestResult.value = { ok: true, message: `已更新，本供应商 ${mine} 个模型` };
+    }
   } catch (err: any) {
     aiTestResult.value = { ok: false, message: `更新失败: ${err.message}` };
   } finally {
@@ -423,4 +479,13 @@ function saveImportToken() {
 .refresh-models-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .test-result { font-weight: 600; }
+
+.inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(74, 114, 255, 0.08);
+  color: var(--color-primary);
+}
 </style>

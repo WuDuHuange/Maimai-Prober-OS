@@ -56,6 +56,11 @@
             @send="handleAISend"
           />
           <SettingsView v-else-if="activeTab === 'settings'" />
+          <PracticePlanView
+            v-else-if="activeTab === 'practice-plan'"
+            @select-song="handleSelectSong"
+            @back="activeTab = 'overview'"
+          />
           <div v-else class="p-8 text-center text-text-muted">即将推出</div>
         </main>
 
@@ -78,6 +83,7 @@ import SongLibraryView from '@/views/SongLibraryView.vue';
 import SongDetailView from '@/views/SongDetailView.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
 import SettingsView from '@/views/SettingsView.vue';
+import PracticePlanView from '@/views/PracticePlanView.vue';
 import { useProberSync } from '@/composables/useProberSync';
 import { useAICoach } from '@/composables/useAICoach';
 import { useSyncStore } from '@/stores/useSyncStore';
@@ -100,19 +106,35 @@ const b50Store = useB50Store();
 const { startSync } = useProberSync();
 const { sendMessage, requestAnalysis, reanalyze } = useAICoach();
 
+// ---- 全局导航总线 ----
+// ⚠️ App.vue 没有 <router-view>，视图完全由 activeTab 决定。
+// 子组件（WelcomeView / RightSidebar / PracticePlanView）通过 CustomEvent 请求切页。
+function onNavSettings() { activeTab.value = 'settings'; }
+function onNavAI() { activeTab.value = 'ai'; }
+function onNavPracticePlan() { activeTab.value = 'practice-plan'; }
+function onNavSong(e: Event) {
+  const songId = (e as CustomEvent<number>).detail;
+  if (typeof songId === 'number') handleSelectSong(songId);
+}
+
 onMounted(async () => {
   useSettingsStore().checkSettings();
   playerStore.restoreFromStorage();
 
-  // 监听来自 WelcomeView 的导航事件
-  window.addEventListener('nav-to-settings', () => { activeTab.value = 'settings'; });
+  window.addEventListener('nav-to-settings', onNavSettings);
+  window.addEventListener('nav-to-ai', onNavAI);
+  window.addEventListener('nav-to-practice-plan', onNavPracticePlan);
+  window.addEventListener('nav-to-song', onNavSong);
 
   // ⚠️ 不再自动恢复 profile —— 用户必须显式点击「同步」才算登录
   // 如果本地有历史数据但未登录，WelcomeView 提供入口让用户手动同步
 });
 
 onUnmounted(() => {
-  window.removeEventListener('nav-to-settings', () => {});
+  window.removeEventListener('nav-to-settings', onNavSettings);
+  window.removeEventListener('nav-to-ai', onNavAI);
+  window.removeEventListener('nav-to-practice-plan', onNavPracticePlan);
+  window.removeEventListener('nav-to-song', onNavSong);
 });
 
 // 登录状态变化时预加载数据
