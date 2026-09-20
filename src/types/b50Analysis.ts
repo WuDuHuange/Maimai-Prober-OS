@@ -174,13 +174,43 @@ export interface TypeChartRef {
 /**
  * 曲风口味 —— 基于水鱼曲库的**官方 genre 字段**（不是社区标注，可靠度高）。
  * 实测值域：舞萌 / niconico & VOCALOID / 其他游戏 / 东方Project / 音击&中二节奏 / 流行&动漫 / 宴会場
+ *
+ * ⚠️ 口径（2026-09-20 修正）：**只描述「喜欢打什么」，不评强弱**。
+ *    它回答的是「我的选曲兴趣结构如何」，与水平无关 ——
+ *    原先带 `verdict`（强项/短板）与 `avgOwnDelta`，等于把口味分析做成了能力分析，是错的。
+ *    想看强弱请用「技术类型专项」与「打谱偏向」。
  */
 export interface GenreTaste {
   genre: string;
   chartCount: number;
   /** 占 B50 的比例 0–1 */
   share: number;
+  /** 平均达成率 —— 仅作中性描述，**不参与任何强弱判定** */
   avgAchievement: number | null;
+  /** 平均定数 —— 反映这类曲目在你 B50 里的难度档位，同属中性描述 */
+  avgConstant: number | null;
+}
+
+/**
+ * 打谱偏向 —— tag **两两组合**的相对表现。
+ *
+ * 回答「哪些 tag 组合的歌我打得好、哪些不行」，与「技术类型专项」（单 tag）互补：
+ * 单 tag 看不出组合效应 —— 例如「星星谱」整体持平，但「星星谱 + 交互」可能明显偏低。
+ *
+ * ⚠️ 只统计样本 ≥ 3 张的组合：组合的样本量天然比单 tag 小，
+ *    门槛不够的话结果会被偶然波动主导。
+ * ⚠️ 参与组合的 tag 只取**配置组 + 评价组**。难度组（水 / 诈称谱）已由
+ *    「谱面性质」与「硬度」单独分析，混进来只会稀释信号。
+ */
+export interface TypeCombo {
+  /** 组成该组合的两个 tag id（升序） */
+  tagIds: [number, number];
+  /** 展示名，如「星星谱 + 交互」 */
+  label: string;
+  /** B50 中同时命中这两个 tag 的谱面数 */
+  chartCount: number;
+  avgAchievement: number | null;
+  /** 相对本人 B50 平均的差值。正 = 这类组合打得比平均好 */
   avgOwnDelta: number | null;
   verdict: RelativeVerdict;
 }
@@ -191,14 +221,29 @@ export interface GenreTaste {
  * ⚠️ 为什么不能只看 B50 里的硬谱占比：
  *    B50 的定义就是「打得最好的 50 首」，而诈称谱**难打** → 天然进不了 B50
  *    → 该占比对所有人恒低，维度零区分度。
+ *
  * 因此**评分只用「硬谱上的实际表现」**：把 B50 内外的硬谱合并、按谱面归并取最高成就，
- * 取达成率最高的若干张，看它们相对本人 B50 平均达成率差多少。
+ * 看它们相对本人 B50 平均达成率差多少。
+ *
+ * ⚠️ 2026-09-20 修正 —— 三个曾把分数抬到虚高的坑：
+ *   1. **未控制定数**：B50 之外的低定数硬谱（如 ADV 8.0）达成率天然接近 100%，
+ *      混进来会把 Δ 拉得虚高。→ 新增 `comparableMinConstant` 门槛。
+ *   2. **选择偏差**：原先只取「达成率最高的 8 张」，本身就是挑最好的看。
+ *      → 改为用池内**全部**可比硬谱。
+ *   3. **映射区间过宽**：原先 `mapRange(Δ, −8, 0)`，而 Δ 是百分点差、实际在 ±1.5 量级，
+ *      于是 Δ≈0（几乎必然发生）就能拿 99 分。→ 区间改为 −2.0 → 0。
+ *
  * `b50HardRate` 仅作**描述性信息**展示（告诉用户 B50 成分里有多少硬货），不参与评分 ——
  * 因为占比低是「硬谱难打」的必然结果，不是玩家的短板。
  */
 export interface HardnessBreakdown {
-  /** 硬谱总数（B50 内外合并、按谱面归并） */
+  /** 参与评分的硬谱数（B50 内外合并、按谱面归并、已过定数门槛） */
   hardCount: number;
+  /** 因定数与 B50 不可比而被排除的硬谱数（低定数硬谱会污染 Δ） */
+  excludedByConstant: number;
+  /** 参与评分的可比定数下限（= B50 最低定数 − 容忍值） */
+  comparableMinConstant: number;
+
   /** ── 以下三项为描述性信息，不参与评分 ── */
   /** 其中落在 B50 里的张数 */
   b50HardCount: number;
@@ -208,11 +253,11 @@ export interface HardnessBreakdown {
   b50HardRate: number;
 
   /** ── 以下三项参与评分 ── */
-  /** 取样（达成率最高的若干张）的平均达成率 */
+  /** 参与评分的硬谱平均达成率 */
   sampleAvgAchievement: number | null;
-  /** 取样平均达成率 − 本人 B50 平均达成率。≥0 = 硬谱上并不吃亏 */
+  /** 参与评分的硬谱平均达成率 − 本人 B50 平均达成率。≥0 = 硬谱上并不吃亏 */
   hardDelta: number | null;
-  /** 取样明细（按达成率降序），供 UI 展示与 AI 引用 */
+  /** 参与评分的硬谱明细（按达成率降序），供 UI 展示与 AI 引用 */
   samples: TypeChartRef[];
 }
 
@@ -234,9 +279,11 @@ export interface B50AnalysisResult {
   highlights: AnalysisHighlights;
   /** 类型专项表现（DXRating 评价组，按 chartCount 降序） */
   typeSpecialties: TypeSpecialty[];
-  /** 曲风口味（官方 genre，按 chartCount 降序） */
+  /** 打谱偏向 —— tag 两两组合的相对表现（按 avgOwnDelta 降序，强的在前） */
+  typeCombos: TypeCombo[];
+  /** 曲风口味（官方 genre，按 chartCount 降序；只描述兴趣，不评强弱） */
   genreTastes: GenreTaste[];
-  /** 硬度的混合口径分解 */
+  /** 硬度口径分解 */
   hardness: HardnessBreakdown;
   /** 所有谱面明细（按贡献降序） */
   charts: ChartAnalysis[];

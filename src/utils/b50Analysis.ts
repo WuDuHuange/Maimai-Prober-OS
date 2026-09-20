@@ -41,6 +41,7 @@ import type {
   HardnessBreakdown,
   RelativeVerdict,
   TypeChartRef,
+  TypeCombo,
   TypeSpecialty,
   WaterBaseline,
 } from '@/types/b50Analysis';
@@ -164,8 +165,14 @@ function shrink(delta: number, n: number): number {
   return delta * (n / (n + SHRINK_K));
 }
 
-/** 硬谱取样条数（全成绩口径） */
-const HARD_SAMPLE_SIZE = 8;
+/**
+ * 硬谱定数门槛的容忍值：硬谱定数必须 ≥ B50 最低定数 − 该值，否则视为不可比。
+ *
+ * ⚠️ 不加这道门槛，B50 之外的低定数硬谱（ADV 8.0 之类）会混进来 ——
+ * 它们的达成率天然接近 100%，会把 hardDelta 拉得虚高，
+ * 进而让「硬度」维度虚高（曾出现 Δ≈0 → 99 分）。
+ */
+const HARD_CONST_MARGIN = 0.5;
 
 function verdictOf(ownDelta: number | null, count: number): RelativeVerdict {
   if (count < MIN_CHARTS_FOR_VERDICT || ownDelta == null) return 'insufficient';
@@ -204,6 +211,7 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
 
   const structure = buildStructure(charts, ownAvg);
   const typeSpecialties = buildTypeSpecialties(charts, tagCatalog);
+  const typeCombos = buildTypeCombos(charts, tagCatalog);
   const genreTastes = buildGenreTastes(charts, songMap);
   const hardness = buildHardness(charts, allPlays, songMap, tagCatalog, statsPayload, waterBaseline, ownAvg);
   const dimensions = buildDimensions(structure, typeSpecialties, hardness);
@@ -223,6 +231,7 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
     structure,
     highlights,
     typeSpecialties,
+    typeCombos,
     genreTastes,
     hardness,
     charts,
@@ -431,10 +440,10 @@ function buildHardnessDimension(h: HardnessBreakdown): AbilityDimension {
   if (h.hardDelta == null) {
     return {
       id: 'hardness', label: '硬度', score: 50, raw: 0,
-      rawLabel: `未找到硬谱（B50 内 ${h.b50HardCount}/${h.b50RatedCount}）`,
+      rawLabel: `可比硬谱不足（B50 内 ${h.b50HardCount}/${h.b50RatedCount}）`,
       basis:
-        '硬谱上的相对表现 —— 社区标注与统计基准都没能识别出任何硬谱，取中性值 50。' +
-        '通常意味着 B50 全是有标注的软谱，或统计基准不可用。',
+        '硬谱上的相对表现 —— 与 B50 定数可比的硬谱不足 3 张，样本波动过大，取中性值 50。' +
+        '通常是社区标注覆盖不足、统计基准不可用，或 B50 定数区间内确实没有硬谱。',
       insufficient: true,
     };
   }
@@ -442,17 +451,19 @@ function buildHardnessDimension(h: HardnessBreakdown): AbilityDimension {
   return {
     id: 'hardness',
     label: '硬度',
-    score: Math.round(mapRange(h.hardDelta, -8, 0)),
+    score: Math.round(mapRange(h.hardDelta, -2.0, 0)),
     raw: round(h.hardDelta, 3),
     rawLabel:
-      `硬谱 ${h.hardCount} 张（B50 内 ${h.b50HardCount}）· 取样 ${h.samples.length} 张平均 ` +
+      `可比硬谱 ${h.hardCount} 张（B50 内 ${h.b50HardCount}）· 平均 ` +
       `${h.sampleAvgAchievement?.toFixed(2) ?? '?'}%（Δ${h.hardDelta >= 0 ? '+' : ''}${h.hardDelta.toFixed(2)}）`,
     basis:
       '硬谱（社区标「诈称谱」或统计口径水度 z ≤ −1.5）上的实际表现：' +
-      '把 B50 内外的硬谱合并、按谱面取最高成就，再取达成率最高的若干张，' +
-      '算它们相对本人 B50 平均达成率的差，映射区间 −8% → 0%。' +
-      '⚠️ B50 内硬谱占比**不计入分数** —— B50 只收打得最好的 50 首，硬谱难打所以天然被挤出，' +
-      '占比低是必然结果而非短板。',
+      '把 B50 内外的硬谱合并、按谱面取最高成就，' +
+      `**只保留定数 ≥ ${h.comparableMinConstant}（与 B50 可比）的**，` +
+      '算它们平均达成率相对本人 B50 平均达成率的差，映射区间 −2.0 → 0。' +
+      '⚠️ 两点口径说明：① B50 内硬谱占比**不计入分数**（硬谱难打天然被挤出，占比低是必然结果）；' +
+      '② 低定数硬谱（如 ADV 8.0）达成率天然接近 100%，已按定数门槛排除' +
+      `${h.excludedByConstant > 0 ? `（本次排除 ${h.excludedByConstant} 张）` : ''}，否则 Δ 会虚高。`,
   };
 }
 
@@ -501,7 +512,13 @@ function buildTypeSpecialties(
   return out.sort((a, b) => orderIndex(a.tagId) - orderIndex(b.tagId) || b.chartCount - a.chartCount);
 }
 
-/** 曲风口味 —— 官方 genre 字段，按张数降序 */
+/**
+ * 曲风口味 —— 官方 genre 字段，按张数降序。
+ *
+ * ⚠️ 只描述**兴趣结构**，不做任何强弱判定（2026-09-20 修正）：
+ *    口味回答的是「我喜欢打什么」，与水平无关。
+ *    原先带 `verdict` / `avgOwnDelta`，等于把口味分析做成了能力分析，是错的。
+ */
 function buildGenreTastes(
   charts: ChartAnalysis[],
   songMap: Map<number, SongMeta>
@@ -518,17 +535,80 @@ function buildGenreTastes(
   const total = charts.length || 1;
   return [...buckets.entries()]
     .map(([genre, arr]): GenreTaste => {
-      const avgOwnDelta = round(mean(arr.map(c => c.ownDelta)), 3);
+      const consts = arr
+        .map(c => c.constant)
+        .filter((v): v is number => typeof v === 'number' && v > 0);
       return {
         genre,
         chartCount: arr.length,
         share: round(arr.length / total, 4),
         avgAchievement: round(mean(arr.map(c => c.achievements)), 3),
-        avgOwnDelta,
-        verdict: verdictOf(avgOwnDelta, arr.length),
+        avgConstant: consts.length ? round(mean(consts), 2) : null,
       };
     })
     .sort((a, b) => b.chartCount - a.chartCount);
+}
+
+/** 组合分析的最小样本量 —— 组合的样本天然比单 tag 小，门槛不够会被偶然波动主导 */
+const MIN_CHARTS_FOR_COMBO = 3;
+
+/**
+ * 打谱偏向 —— tag **两两组合**的相对表现。
+ *
+ * 回答「哪些 tag 组合的歌打得好、哪些不行」，与「技术类型专项」（单 tag）互补：
+ * 单 tag 看不出组合效应 —— 「星星谱」可能整体持平，但「星星谱 + 交互」明显偏低。
+ *
+ * 参与组合的 tag 只取**配置组 + 评价组**；难度组（水 / 诈称谱）已由
+ * 「谱面性质」与「硬度」单独分析，混进来只会稀释信号。
+ */
+function buildTypeCombos(
+  charts: ChartAnalysis[],
+  tagCatalog: TagCatalog | null
+): TypeCombo[] {
+  if (!tagCatalog) return [];
+
+  const comboable = new Set(
+    tagCatalog.tags
+      .filter(t => t.groupId === TAG_GROUP_IDS.CONFIG || t.groupId === TAG_GROUP_IDS.EVALUATION)
+      .map(t => t.id)
+  );
+  if (comboable.size < 2) return [];
+
+  const nameOf = new Map(tagCatalog.tags.map(t => [t.id, t.name] as const));
+
+  /** key = `${idA}|${idB}`（升序） */
+  const buckets = new Map<string, { ids: [number, number]; hits: ChartAnalysis[] }>();
+
+  for (const c of charts) {
+    const ids = [...new Set(c.tags.map(t => t.id).filter(id => comboable.has(id)))]
+      .sort((a, b) => a - b);
+    if (ids.length < 2) continue;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = `${ids[i]}|${ids[j]}`;
+        const hit = buckets.get(key);
+        if (hit) hit.hits.push(c);
+        else buckets.set(key, { ids: [ids[i], ids[j]], hits: [c] });
+      }
+    }
+  }
+
+  const out: TypeCombo[] = [];
+  for (const { ids, hits } of buckets.values()) {
+    if (hits.length < MIN_CHARTS_FOR_COMBO) continue;
+    const avgOwnDelta = round(mean(hits.map(c => c.ownDelta)), 3);
+    out.push({
+      tagIds: ids,
+      label: `${nameOf.get(ids[0]) ?? `#${ids[0]}`} + ${nameOf.get(ids[1]) ?? `#${ids[1]}`}`,
+      chartCount: hits.length,
+      avgAchievement: round(mean(hits.map(c => c.achievements)), 3),
+      avgOwnDelta,
+      verdict: verdictOf(avgOwnDelta, hits.length),
+    });
+  }
+
+  // 强的在前（UI 取两端展示）
+  return out.sort((a, b) => (b.avgOwnDelta ?? 0) - (a.avgOwnDelta ?? 0));
 }
 
 /**
@@ -554,10 +634,26 @@ function buildHardness(
   const b50Rated = charts.filter(c => c.tags.length > 0 || c.waterZ != null);
   const b50Hard = b50Rated.filter(c => c.hasUnderratedTag || c.isHardByStat);
 
-  // ── 评分口径：B50 内硬谱先入池 ──
-  const hardRefs: TypeChartRef[] = b50Hard.map(toRef);
+  // ── 可比定数下限（⚠️ 关键门槛）──
+  // B50 之外的低定数硬谱（ADV 8.0 之类）达成率天然接近 100%，
+  // 混进来会把 hardDelta 拉得虚高 → 硬度虚高。必须限定「与 B50 可比」。
+  const b50Consts = charts
+    .map(c => c.constant)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  const b50MinConst = b50Consts.length ? Math.min(...b50Consts) : 0;
+  const comparableMin = b50MinConst > 0 ? round(b50MinConst - HARD_CONST_MARGIN, 2) : 0;
 
-  // ── 再把 B50 之外的硬谱补进来（同一谱面只留最高达成率那一条） ──
+  /** 定数是否与 B50 可比。拿不到定数的硬谱一律排除（宁缺毋滥）。 */
+  const isComparable = (constant: number | null): boolean => {
+    if (comparableMin <= 0) return true; // B50 定数未知 → 不设门槛
+    return constant != null && constant >= comparableMin;
+  };
+
+  // ── 评分口径：B50 内硬谱先入池（它们的定数天然与 B50 可比） ──
+  const hardRefs: TypeChartRef[] = b50Hard.map(toRef);
+  let excludedByConstant = 0;
+
+  // ── 再把 B50 之外、定数可比的硬谱补进来（同一谱面只留最高达成率那一条） ──
   const bestByChart = new Map<string, PlayRecord>();
   for (const p of allPlays) {
     const key = chartTagKey(p.songId, p.difficulty);
@@ -572,13 +668,14 @@ function buildHardness(
 
     const byTag = (tagCatalog?.byChart.get(key) ?? []).some(t => t.id === TAG_IDS.UNDERRATED);
 
+    const song = songMap.get(p.songId);
+    const constant = song
+      ? getConstByDifficulty(song, p.difficulty)
+      : (typeof p.constant === 'number' ? p.constant : null);
+
     let byStat = false;
     const levelIndex = DIFFICULTY_INDEX[p.difficulty];
     if (!byTag && statsPayload && levelIndex != null) {
-      const song = songMap.get(p.songId);
-      const constant = song
-        ? getConstByDifficulty(song, p.difficulty)
-        : (typeof p.constant === 'number' ? p.constant : null);
       const raw = getChartStat(statsPayload, p.songId, levelIndex);
       if (raw && constant != null) {
         const baseline = waterBaseline.get(levelIndex);
@@ -591,10 +688,12 @@ function buildHardness(
 
     if (!byTag && !byStat) continue;
 
-    const song = songMap.get(p.songId);
-    const constant = song
-      ? getConstByDifficulty(song, p.difficulty)
-      : (typeof p.constant === 'number' ? p.constant : null);
+    // ⚠️ 定数门槛：低定数硬谱达成率天然高，会污染 Δ
+    if (!isComparable(constant)) {
+      excludedByConstant += 1;
+      continue;
+    }
+
     hardRefs.push({
       songId: p.songId,
       title: song?.title ?? `#${p.songId}`,
@@ -605,24 +704,26 @@ function buildHardness(
     });
   }
 
+  // ⚠️ 全部可比硬谱参与评分 —— **不再截断**（原先取达成率最高的 8 张是选择偏差）
   hardRefs.sort((a, b) => b.achievements - a.achievements);
-  const samples = hardRefs.slice(0, HARD_SAMPLE_SIZE);
 
   // 样本太少时不硬给结论（3 张以下的平均波动过大）
-  const enough = samples.length >= MIN_CHARTS_FOR_VERDICT;
-  const sampleAvgAchievement = enough ? round(mean(samples.map(s => s.achievements)), 3) : null;
+  const enough = hardRefs.length >= MIN_CHARTS_FOR_VERDICT;
+  const sampleAvgAchievement = enough ? round(mean(hardRefs.map(s => s.achievements)), 3) : null;
   const hardDelta = sampleAvgAchievement != null
     ? round(sampleAvgAchievement - ownAvg, 3)
     : null;
 
   return {
     hardCount: hardRefs.length,
+    excludedByConstant,
+    comparableMinConstant: comparableMin,
     b50HardCount: b50Hard.length,
     b50RatedCount: b50Rated.length,
     b50HardRate: round(b50Rated.length > 0 ? b50Hard.length / b50Rated.length : 0, 4),
     sampleAvgAchievement,
     hardDelta,
-    samples,
+    samples: hardRefs,
   };
 }
 

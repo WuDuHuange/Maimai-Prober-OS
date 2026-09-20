@@ -4,6 +4,10 @@ on:
   push:
     branches: [main, master]
   workflow_dispatch:
+  schedule:
+    # 每周一 03:17 UTC（北京时间 11:17）刷新 DXRating 社区标注。
+    # 社区标注是众包数据、变动慢，按周同步足够；避开整点以减少 Actions 排队。
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read
@@ -32,6 +36,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # 生产环境不能直连 DXRating（其 CORS 按 Origin 白名单放行，github.io 不在其中），
+      # 故构建前抓取社区标注落成同源静态文件。抓取失败会保留仓库里的旧副本，不会让构建挂掉。
+      - name: Sync chart tags (DXRating)
+        run: npm run sync:tags
 
       - name: Build
         run: npm run build

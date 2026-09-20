@@ -42,6 +42,9 @@ export const CONTEXT_BUDGET = {
 /** 快照里每条谱面最多展示几个 tag —— 全量 tag 会让快照膨胀数倍 */
 const SNAPSHOT_TAGS_PER_CHART = 6;
 
+/** 快照里「打谱偏向」最多展示几个强项 / 弱项组合 */
+const COMBO_SHOWN = 5;
+
 export interface PlayerProfileFacts {
   nickname: string;
   rating: number;
@@ -194,14 +197,38 @@ export function renderAnalysisSnapshot(r: B50AnalysisResult): string {
     L.push(`- ⚠️ 类型是**社区标注**，只覆盖被标注过的谱面，未列出的类型 = 数据缺失，不要臆测。`);
   }
 
-  // ── 选曲口味（官方 genre）──
+  // ── 选曲口味（官方 genre）—— 只描述兴趣结构，不评强弱 ──
   if (r.genreTastes.length > 0) {
     L.push(`\n### 选曲口味（水鱼官方 genre 分类，非社区标注）`);
+    L.push(`- ⚠️ 本节**只描述选曲兴趣结构**，与水平无关 —— 不要据此判断强弱或给练习建议。`);
     for (const g of r.genreTastes) {
       L.push(
         `- ${g.genre}：${g.chartCount} 张（占 ${(g.share * 100).toFixed(0)}%），` +
-        `平均达成 ${g.avgAchievement?.toFixed(2) ?? '?'}%，相对自身 ${fmtDelta(g.avgOwnDelta)} → ${verdictLabel(g.verdict)}`
+        `平均达成 ${g.avgAchievement?.toFixed(2) ?? '?'}%，平均定数 ${g.avgConstant?.toFixed(1) ?? '?'}`
       );
+    }
+  }
+
+  // ── 打谱偏向（tag 两两组合）──
+  if (r.typeCombos.length > 0) {
+    L.push(`\n### 打谱偏向（tag 两两组合的相对表现）`);
+    L.push(`- 口径：同时命中两个 tag 的 B50 谱面（样本 ≥ 3 张）相对本人 B50 平均达成率的差。`);
+    const strong = r.typeCombos.filter(c => c.verdict === 'strong').slice(0, COMBO_SHOWN);
+    const weak = [...r.typeCombos].reverse().filter(c => c.verdict === 'weak').slice(0, COMBO_SHOWN);
+    if (strong.length) {
+      L.push(`- 打得好的组合：`);
+      L.push(...strong.map(c =>
+        `  · ${c.label}：${c.chartCount} 张，相对自身 ${fmtDelta(c.avgOwnDelta)}`
+      ));
+    }
+    if (weak.length) {
+      L.push(`- 打得差的组合：`);
+      L.push(...weak.map(c =>
+        `  · ${c.label}：${c.chartCount} 张，相对自身 ${fmtDelta(c.avgOwnDelta)}`
+      ));
+    }
+    if (!strong.length && !weak.length) {
+      L.push(`- 共 ${r.typeCombos.length} 个组合达标，但没有一个偏离自身平均超过 ±0.3 —— 表现相当均匀。`);
     }
   }
 
@@ -286,19 +313,24 @@ export function buildAnalysisRequest(r: B50AnalysisResult): string {
     `我刚生成了 B50 能力分析（见上方 L2 快照）。请基于**快照里的真实数据**给我一份解读，要求：`,
     ``,
     `1. **总览**：两三句话点出我当前的 B50 结构特征（不要复述数字，讲结论）。`,
-    `2. **六维解读**：逐个维度说明分数背后意味着什么，以及我应该关心哪几维。${focus}`,
+    `2. **六维解读**：**六个维度必须逐一独立成条**，每维一条，格式为「维度名 分数 —— 解读」。${focus}`,
     `3. **技术类型专项**：快照「技术类型专项」一节列了星星谱/键盘谱/体力谱/底力谱/高物量五类的表现。` +
       `逐类讲清我的强弱，并说明短板类型**具体卡在哪**（是读谱、手速、体力还是爆发）。${typeFocus}`,
-    `4. **选曲口味**：结合「选曲口味」一节，谈谈我的曲风分布，以及哪种曲风打得明显更好或更差、可能的原因。`,
-    `5. **谱面性质**：结合「水」/「诈称谱」社区标注与拟合定数，谈谈我的 B50 是不是靠偏水的谱堆起来的。` +
+    `4. **打谱偏向**：结合「打谱偏向」一节（tag 两两组合），指出哪些组合我打得明显好、哪些明显差，` +
+      `并尝试解释组合效应（例如「星星谱」单看不弱，但配上「交互」就掉下来，这说明什么）。`,
+    `5. **选曲口味**：结合「选曲口味」一节，只谈我的**曲风兴趣分布**（偏好集中在哪里）。` +
+      `⚠️ 口味与水平无关 —— **不要**评价哪种曲风打得好坏，也不要据此给练习建议。`,
+    `6. **谱面性质**：结合「水」/「诈称谱」社区标注与拟合定数，谈谈我的 B50 是不是靠偏水的谱堆起来的。` +
       `并说明我的硬度分意味着什么（快照里写了口径：只看硬谱上的实际表现）。`,
-    `6. **可操作建议**：给出 3–5 条具体建议，能落到具体谱面上就落到谱面。`,
+    `7. **可操作建议**：给出 3–5 条具体建议，能落到具体谱面上就落到谱面。`,
     ``,
     `约束：`,
+    `- ⚠️ **六维必须逐条独立**。禁止把两个维度写进同一句（例如「精度 100 / 稳定 75」）；` +
+      `也禁止在某一维里塞入与该维无关的数字 —— 讲「精度」时提「鸟加多少张」是错的，那是结构数据。`,
     `- **禁止**说「高于/低于同段平均」「同水平玩家」这类话 —— 同段基准不可用，快照里写明了。`,
     `- **不要编造数据。** 所有数字必须来自快照，或来自你通过工具查到的真实数据。`,
     `- **推荐具体曲目之前，必须先用 search_songs 工具确认这首歌在你的曲库里存在**，不要凭印象写曲名。`,
     `- 快照里没有的数据（某个类型没被标注、某首歌没有统计）就直说「数据缺失」，不要推测。`,
-    `- 用中文，Markdown 小标题 + 要点列表，控制在 700 字以内。`,
+    `- 用中文，Markdown 小标题 + 要点列表，控制在 800 字以内。`,
   ].join('\n');
 }

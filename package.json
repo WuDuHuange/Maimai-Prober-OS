@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:tags": "node scripts/fetch-tags.mjs"
   },
   "dependencies": {
     "@vueuse/core": "^11.0.0",

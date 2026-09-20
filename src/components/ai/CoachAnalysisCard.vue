@@ -89,24 +89,60 @@
         <p class="panel-note">{{ typeNote }}</p>
       </section>
 
-      <!-- ② 选曲口味（官方 genre） -->
-      <section v-if="genres.length" class="panel" :style="{ '--d': 1 }">
+      <!-- ② 打谱偏向（tag 两两组合） -->
+      <section v-if="combos.length" class="panel" :style="{ '--d': 1 }">
+        <div class="panel-head">
+          <span class="panel-title">打谱偏向</span>
+          <span class="panel-hint">tag 组合 · 相对你 B50 平均</span>
+        </div>
+        <div class="combo-list">
+          <div
+            v-for="(c, i) in combos"
+            :key="c.label"
+            class="combo-row"
+            :style="{ '--d': i }"
+            :title="`${c.chartCount} 张 · 平均达成 ${c.avgAchievement?.toFixed(2) ?? '?'}%`"
+          >
+            <span class="combo-label">{{ c.label }}</span>
+            <span class="combo-track">
+              <span
+                v-if="c.avgOwnDelta != null"
+                class="combo-bar"
+                :class="c.avgOwnDelta < 0 ? 'neg' : 'pos'"
+                :style="{ width: comboW(c.avgOwnDelta) }"
+              />
+            </span>
+            <span class="combo-val" :class="deltaClass(c.avgOwnDelta)">{{ fmtDelta(c.avgOwnDelta) }}</span>
+            <span class="combo-count">{{ c.chartCount }} 张</span>
+          </div>
+        </div>
+        <p class="panel-note">只看样本 ≥ 3 张的组合 · 正 = 比你的 B50 平均打得好</p>
+      </section>
+
+      <!-- ③ 选曲口味（官方 genre）—— 只反映兴趣，不评强弱 -->
+      <section v-if="genres.length" class="panel" :style="{ '--d': 2 }">
         <div class="panel-head">
           <span class="panel-title">选曲口味</span>
-          <span class="panel-hint">B50 曲风占比 · 官方分类</span>
+          <span class="panel-hint">B50 曲风占比 · 与水平无关</span>
         </div>
         <div class="genre-list">
-          <div v-for="(g, i) in genres" :key="g.genre" class="genre-row" :style="{ '--d': i }">
+          <div
+            v-for="(g, i) in genres"
+            :key="g.genre"
+            class="genre-row"
+            :style="{ '--d': i }"
+            :title="`${g.chartCount} 张 · 平均达成 ${g.avgAchievement?.toFixed(2) ?? '?'}% · 平均定数 ${g.avgConstant?.toFixed(1) ?? '?'}`"
+          >
             <span class="genre-name">{{ g.genre }}</span>
             <span class="genre-track"><span class="genre-fill" :style="{ width: pct(g.share) }" /></span>
             <span class="genre-share">{{ pct(g.share) }}</span>
-            <span class="genre-delta" :class="deltaClass(g.avgOwnDelta)">{{ fmtDelta(g.avgOwnDelta) }}</span>
+            <span class="genre-count">{{ g.chartCount }} 张</span>
           </div>
         </div>
       </section>
 
-      <!-- ③ 定数分布 -->
-      <section v-if="hist.length" class="panel" :style="{ '--d': 2 }">
+      <!-- ④ 定数分布 -->
+      <section v-if="hist.length" class="panel" :style="{ '--d': 3 }">
         <div class="panel-head">
           <span class="panel-title">定数分布</span>
           <span class="panel-hint">B50 难度构成</span>
@@ -310,6 +346,18 @@ const visibleTypes = computed(() =>
 const genres = computed(() =>
   (result.value?.genreTastes ?? []).filter(g => g.chartCount > 0)
 );
+
+/**
+ * 打谱偏向 —— 只取组合的**两端**（最强 / 最弱）。
+ * 中间态没有信息量，全列出来只会把面板撑长。
+ * 样本门槛（≥3 张）由算法侧保证。
+ */
+const COMBO_SHOWN = 5;
+const combos = computed(() => {
+  const all = result.value?.typeCombos ?? [];
+  if (all.length <= COMBO_SHOWN * 2) return all;
+  return [...all.slice(0, COMBO_SHOWN), ...all.slice(-COMBO_SHOWN)];
+});
 const hist = computed(() => result.value?.structure.constHistogram ?? []);
 const histMax = computed(() => Math.max(1, ...hist.value.map(h => h.count)));
 
@@ -317,6 +365,12 @@ const histMax = computed(() => Math.max(1, ...hist.value.map(h => h.count)));
 function barW(t: TypeSpecialty): string {
   const v = Math.min(Math.abs(t.avgOwnDelta ?? 0), DELTA_RANGE);
   return `${(v / DELTA_RANGE) * 50}%`;
+}
+
+/** 偏向条：单向横条，宽度按 |Δ| / DELTA_RANGE 归一（下限 3% 保证可见） */
+function comboW(v: number | null): string {
+  const x = Math.min(Math.abs(v ?? 0), DELTA_RANGE);
+  return `${Math.max(3, (x / DELTA_RANGE) * 100)}%`;
 }
 
 function pct(share: number): string {
@@ -800,12 +854,53 @@ function diffLabel(d: DifficultyType) {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.genre-delta {
+.genre-count { font-size: 10px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- ③ 打谱偏向（tag 两两组合） ---- */
+.combo-list { display: flex; flex-direction: column; gap: 6px; }
+
+.combo-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 44px 40px;
+  align-items: center;
+  gap: 8px;
+  animation: row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms);
+}
+
+.combo-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(139, 155, 180, 0.14);
+  overflow: hidden;
+}
+
+.combo-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  animation: bar-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms + 100ms);
+}
+.combo-bar.pos { background: linear-gradient(90deg, #10B981, #34D399); }
+.combo-bar.neg { background: linear-gradient(90deg, #F59E0B, #EF4444); }
+
+.combo-val {
   font-size: 11px;
   font-weight: 700;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.combo-count { font-size: 10px; color: var(--text-muted); text-align: right; }
 
 /* ---- ③ 定数分布直方图 ---- */
 .hist {

@@ -12,10 +12,27 @@
 import { db } from './db';
 import type { RawTagsResponse } from '@/types/tag';
 
-/** 开发期走 vite proxy 规避 CORS，生产直连 */
+/**
+ * 数据来源（⚠️ 2026-09-20 修正）
+ *
+ * - **开发期**：走 vite proxy `/api-dxr` 规避 CORS，能拿到最新数据
+ * - **生产**：读**同源静态文件** `public/dxr-tags.json`
+ *
+ * 生产**绝不能**直连 `miruku.dxrating.net` —— 该服务端按 Origin 白名单放行 CORS：
+ * 响应带 `Vary: Origin` 与 `Access-Control-Allow-Credentials: true`，
+ * 却**不返回** `Access-Control-Allow-Origin`，而 GitHub Pages 的源不在白名单里，
+ * 浏览器会直接拦截。此前生产写的就是直连，导致**线上 tag 功能一直完全失效**
+ * （类型专项、水/诈称谱判定全部拿不到数据），只有本地 dev 因走 proxy 才正常。
+ *
+ * ⚠️ 这个 bug 之所以长期没被发现：curl / Node **不受 CORS 约束**，
+ * 离线脚本与 dev server 上的冒烟都会「通过」—— 必须在**生产构建**下验证才看得见。
+ *
+ * 静态文件由 `scripts/fetch-tags.mjs` 在**构建前**抓取
+ * （CI 里跑 `npm run sync:tags`，另有每周定时构建保持数据新鲜）。
+ */
 const TAGS_ENDPOINT = import.meta.env.DEV
   ? '/api-dxr/api/v1/tags'
-  : 'https://miruku.dxrating.net/api/v1/tags';
+  : `${import.meta.env.BASE_URL}dxr-tags.json`;
 
 const CACHE_KEY = 'dxr_tags_cache';
 const CACHE_TS_KEY = 'dxr_tags_cache_ts';

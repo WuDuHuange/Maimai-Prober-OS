@@ -76,10 +76,19 @@ export function buildReportRequest(r: B50AnalysisResult): string {
     strongTypes.length ? `标记为强项的：${strongTypes.map(t => t.name).join('、')}` : '',
   ].filter(Boolean).join('；');
 
-  const weakGenres = r.genreTastes.filter(g => g.verdict === 'weak');
-  const genreHint = weakGenres.length
-    ? `相对偏弱的曲风：${weakGenres.map(g => g.genre).join('、')}`
+  // ⚠️ 口味只描述兴趣结构，**不评强弱** —— 这里只给「最常打的两类」作提示
+  const topGenres = r.genreTastes.slice(0, 2);
+  const genreHint = topGenres.length
+    ? `最常打的曲风：${topGenres.map(g => `${g.genre}（${g.chartCount} 张）`).join('、')}`
     : '';
+
+  // 打谱偏向：给 AI 点出两端的组合，省得它自己在长清单里找
+  const comboStrong = r.typeCombos.filter(c => c.verdict === 'strong').slice(0, 3);
+  const comboWeak = [...r.typeCombos].reverse().filter(c => c.verdict === 'weak').slice(0, 3);
+  const comboHint = [
+    comboStrong.length ? `打得好的组合：${comboStrong.map(c => c.label).join('、')}` : '',
+    comboWeak.length ? `打得差的组合：${comboWeak.map(c => c.label).join('、')}` : '',
+  ].filter(Boolean).join('；');
 
   const lines = [
     `我刚生成了 B50 能力分析（见上方 [L2] 快照）。请给我一份**完整的诊断报告**，我会存档反复回看。`,
@@ -90,7 +99,9 @@ export function buildReportRequest(r: B50AnalysisResult): string {
     `3–4 句讲清我的 B50 是什么形态：是靠定数堆起来的，还是靠高达成率撑起来的？新旧曲结构如何？不要复述数字。`,
     ``,
     `## 二、六维逐项解读`,
-    `六个维度逐个讲：这个分数意味着什么、对应的短板具体会卡在哪些类型的谱面上。`,
+    `**六个维度必须逐一独立成条**（每维一条，格式「维度名 分数 —— 解读」）。` +
+      `禁止把两个维度合并成一句，也不要在某一维里塞入与该维无关的数字。`,
+    `每条讲清：这个分数意味着什么、对应的短板具体会卡在哪些类型的谱面上。`,
   ];
 
   if (weakest && strongest) {
@@ -108,19 +119,28 @@ export function buildReportRequest(r: B50AnalysisResult): string {
       `它具体卡在哪个环节（读谱、手速、体力分配、爆发衔接），以及练什么能改善。`,
     typeHint ? `（${typeHint}）` : '',
     ``,
-    `## 四、选曲口味与风格倾向`,
-    `结合「选曲口味」一节（水鱼官方 genre 分类）谈：我的 B50 曲风构成是什么样、哪类曲风打得明显更好或更差、` +
-      `这可能反映了什么（比如常练的曲池偏窄、或某种曲风的谱面结构更顺手）。`,
+    `## 四、打谱偏向分析`,
+    `快照「打谱偏向」一节把 tag 做了**两两组合**统计（配置类 tag × 评价类 tag），` +
+      `反映的是**组合效应** —— 单看「星星谱」也许还行，但「星星谱 + 交互」可能明显更差。`,
+    `请指出：哪些组合我打得明显好、哪些明显差，并解释这种组合效应背后的技术原因` +
+      `（例如两类配置叠加时读谱 / 手速 / 体力哪个先成为瓶颈）。只谈打得**好或差**的组合，不要罗列全部组合。`,
+    comboHint ? `（${comboHint}）` : '',
+    ``,
+    `## 五、选曲口味与风格倾向`,
+    `结合「选曲口味」一节（水鱼官方 genre 分类）谈我的曲风构成：**常打哪几类、结构是否偏窄、` +
+      `是否长期只在少数曲池里打**。`,
+    `⚠️ 这一节**只描述选曲兴趣，与水平无关** —— **禁止**评价哪类曲风「打得好 / 打得差 / 是短板」，` +
+      `曲风分布反映的是偏好不是能力。要谈强弱请放到第三节（技术类型专项）和第四节（打谱偏向）。`,
     genreHint ? `（${genreHint}）` : '',
     ``,
-    `## 五、谱面性质分析`,
+    `## 六、谱面性质分析`,
     `结合社区标注（DXRating 的「水」/「诈称谱」）与全服拟合定数，判断我的 B50 里有多少是靠偏水的谱堆出来的。`,
     `另外解释我的「硬度」分：快照里写了口径 —— **只看硬谱上的实际表现，B50 内硬谱占比不计分**。要点名具体谱面。`,
     ``,
-    `## 六、可操作建议`,
+    `## 七、可操作建议`,
     `4–6 条，按优先级排序。每条说清「练什么 → 为什么 → 预期收益」，能落到具体曲目就给出曲名、难度和定数。`,
     ``,
-    `## 七、下阶段目标`,
+    `## 八、下阶段目标`,
     `给出一个具体、可衡量的短期目标（例如定数区间、达成率门槛、鸟/鸟加数量，或某个短板类型的达成率提升幅度）。`,
     ``,
     `---`,
