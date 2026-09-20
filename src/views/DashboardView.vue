@@ -26,13 +26,26 @@
       </div>
     </div>
 
-    <!-- B50 Card Grid -->
+    <!-- B50 列表：卡片 / 表格 双视图 -->
     <div id="b50-section" class="card-static p-5">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center justify-between mb-2">
         <span class="section-title-sm">Best 50 排名</span>
-        <span class="text-xs text-text-muted">Rating 贡献排序 · 悬停查看详情 · 点击进入曲目</span>
+        <div class="b50-view-switch" role="tablist" aria-label="B50 视图切换">
+          <button
+            v-for="v in B50_VIEWS"
+            :key="v.key"
+            class="b50-view-btn"
+            :class="{ active: b50View === v.key }"
+            role="tab"
+            :aria-selected="b50View === v.key"
+            :title="v.tip"
+            @click="setB50View(v.key)"
+          >{{ v.label }}</button>
+        </div>
       </div>
-      <B50CardGrid @select-song="emit('select-song', $event)" />
+      <p class="b50-view-hint">{{ b50ViewHint }}</p>
+      <B50CardGrid v-if="b50View === 'card'" @select-song="emit('select-song', $event)" />
+      <B50Table v-else @select-song="emit('select-song', $event)" />
     </div>
 
     <!-- Stats Bar -->
@@ -109,6 +122,7 @@ import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
 import { useGSAP } from '@/composables/useGSAP';
 import B50CardGrid from '@/components/b50/B50CardGrid.vue';
+import B50Table from '@/components/b50/B50Table.vue';
 
 const playerStore = usePlayerStore();
 const playLogStore = usePlayLogStore();
@@ -121,6 +135,29 @@ const statsEl = ref<HTMLElement | null>(null);
 
 function triggerAvatarUpload() {
   avatarInput.value?.click();
+}
+
+/* ===== B50 视图切换（卡片 / 表格），偏好存本地 ===== */
+type B50View = 'card' | 'table';
+const B50_VIEW_KEY = 'b50_view_mode';
+const B50_VIEWS: { key: B50View; label: string; tip: string }[] = [
+  { key: 'card', label: '卡片', tip: '封面卡片，悬停看细节' },
+  { key: 'table', label: '表格', tip: '紧凑表格，一屏看更多' },
+];
+
+const b50View = ref<B50View>(
+  localStorage.getItem(B50_VIEW_KEY) === 'table' ? 'table' : 'card'
+);
+
+const b50ViewHint = computed(() =>
+  b50View.value === 'card'
+    ? 'Rating 贡献排序 · 悬停查看详情 · 点击进入曲目'
+    : '按贡献降序 · 高亮行 = 高于本份 B50 平均贡献 · 点击进入曲目'
+);
+
+function setB50View(v: B50View) {
+  b50View.value = v;
+  localStorage.setItem(B50_VIEW_KEY, v);
 }
 
 function onAvatarFile(e: Event) {
@@ -293,6 +330,45 @@ function playEntrance() {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: var(--letter-spacing-normal);
+}
+
+/* ===== B50 视图切换 ===== */
+.b50-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+}
+
+.b50-view-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-smooth), color var(--transition-smooth),
+              box-shadow var(--transition-smooth);
+}
+.b50-view-btn:hover:not(.active) { color: var(--text-secondary); }
+.b50-view-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 2px 8px rgba(74, 114, 255, 0.25);
+}
+
+.b50-view-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b50-view-btn { transition: none; }
 }
 
 /* ===== Stats Bar ===== */

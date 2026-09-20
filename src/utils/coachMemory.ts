@@ -31,8 +31,10 @@ export const CONTEXT_BUDGET = {
   /**
    * L2 预算。注意：快照尾部是「B50 全量清单」，AI 推荐练习曲时要用它，
    * 所以这个预算必须**留足**，否则截断会把最有用的部分切掉。
+   * 后来又补了「技术类型专项」「选曲口味」「硬度口径」三节 —— 这三节是
+   * 「教练分析详情度不够」的根因（此前 AI 手上根本没有类型/曲风数据）。
    */
-  snapshot: 3400,
+  snapshot: 4200,
   summary: 400,
   history: 2600,
 } as const;
@@ -161,6 +163,72 @@ export function renderAnalysisSnapshot(r: B50AnalysisResult): string {
     `「相对自己偏低」是玩家 B50 内部对比（该谱达成率 − 自己 B50 平均达成率），不是与他人比较。`
   );
 
+  /** 相对自身 B50 平均的差值，带符号 */
+  const fmtDelta = (v: number | null | undefined) =>
+    v == null ? '?' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+
+  /** verdict → 中文标签 */
+  const verdictLabel = (v: string) =>
+    v === 'strong' ? '**强项**'
+      : v === 'weak' ? '**短板**'
+        : v === 'insufficient' ? '样本不足' : '与自身持平';
+
+  // ── 技术类型专项（DXRating「评价」组）──
+  if (r.typeSpecialties.length > 0) {
+    L.push(`\n### 技术类型专项（DXRating「评价」组社区标注）`);
+    for (const t of r.typeSpecialties) {
+      if (t.chartCount === 0) continue;
+      L.push(
+        `- ${t.name}：B50 中 ${t.chartCount} 张，平均达成 ${t.avgAchievement?.toFixed(2) ?? '?'}%，` +
+        `相对自身 ${fmtDelta(t.avgOwnDelta)} → ${verdictLabel(t.verdict)}`
+      );
+      // 只在有明确结论时给代表谱，避免快照膨胀
+      const ref = t.verdict === 'weak' ? t.worstChart : t.bestChart;
+      if (ref && t.chartCount >= 3) {
+        L.push(
+          `  · 代表谱：${ref.title} ${DIFFICULTY_LABEL_SHORT[ref.difficulty]} ` +
+          `${ref.constant?.toFixed(1) ?? '?'} 达成 ${ref.achievements.toFixed(2)}%`
+        );
+      }
+    }
+    L.push(`- ⚠️ 类型是**社区标注**，只覆盖被标注过的谱面，未列出的类型 = 数据缺失，不要臆测。`);
+  }
+
+  // ── 选曲口味（官方 genre）──
+  if (r.genreTastes.length > 0) {
+    L.push(`\n### 选曲口味（水鱼官方 genre 分类，非社区标注）`);
+    for (const g of r.genreTastes) {
+      L.push(
+        `- ${g.genre}：${g.chartCount} 张（占 ${(g.share * 100).toFixed(0)}%），` +
+        `平均达成 ${g.avgAchievement?.toFixed(2) ?? '?'}%，相对自身 ${fmtDelta(g.avgOwnDelta)} → ${verdictLabel(g.verdict)}`
+      );
+    }
+  }
+
+  // ── 硬度口径分解 ──
+  const hd = r.hardness;
+  L.push(`\n### 硬度口径分解`);
+  L.push(
+    `- 识别到硬谱 ${hd.hardCount} 张（社区标「诈称谱」或水度 z ≤ −1.5）；` +
+    `其中落在 B50 里的只有 ${hd.b50HardCount}/${hd.b50RatedCount} 张（${(hd.b50HardRate * 100).toFixed(1)}%）`
+  );
+  L.push(
+    `- 取达成率最高的 ${hd.samples.length} 张硬谱：平均 ${hd.sampleAvgAchievement?.toFixed(2) ?? '?'}%，` +
+    `相对本人 B50 平均 ${fmtDelta(hd.hardDelta)}`
+  );
+  L.push(
+    `- ⚠️ B50 内硬谱占比低是**正常现象**（硬谱难打 → 进不了 B50），该占比**不计入评分**。` +
+    `硬度分数只看硬谱上的实际表现。`
+  );
+  if (hd.samples.length > 0) {
+    L.push(
+      `- 硬谱取样：` +
+      hd.samples.slice(0, 5).map(s =>
+        `${s.title} ${DIFFICULTY_LABEL_SHORT[s.difficulty]}${s.constant?.toFixed(1) ?? '?'}=${s.achievements.toFixed(2)}%`
+      ).join(' / ')
+    );
+  }
+
   const h = r.highlights;
   /** 截断 tag 列表，避免单行过长把快照预算吃光 */
   const tagStr = (c: { tagNames: string[] }) => {
@@ -208,17 +276,29 @@ export function buildAnalysisRequest(r: B50AnalysisResult): string {
   const dims = r.dimensions.filter(d => !d.insufficient);
   const weakest = [...dims].sort((a, b) => a.score - b.score)[0];
   const focus = weakest ? `重点解释「${weakest.label}」这一维（得分 ${weakest.score}）的成因。` : '';
+
+  const weakType = r.typeSpecialties.find(t => t.verdict === 'weak');
+  const typeFocus = weakType
+    ? `我的短板类型是「${weakType.name}」，请重点分析这一类。`
+    : '';
+
   return [
     `我刚生成了 B50 能力分析（见上方 L2 快照）。请基于**快照里的真实数据**给我一份解读，要求：`,
     ``,
     `1. **总览**：两三句话点出我当前的 B50 结构特征（不要复述数字，讲结论）。`,
     `2. **六维解读**：逐个维度说明分数背后意味着什么，以及我应该关心哪几维。${focus}`,
-    `3. **谱面性质**：结合「水」/「诈称谱」社区标注与拟合定数，谈谈我的 B50 是不是靠偏水的谱堆起来的。`,
-    `4. **可操作建议**：给出 3–5 条具体建议，能落到具体谱面上就落到谱面。`,
+    `3. **技术类型专项**：快照「技术类型专项」一节列了星星谱/键盘谱/体力谱/底力谱/高物量五类的表现。` +
+      `逐类讲清我的强弱，并说明短板类型**具体卡在哪**（是读谱、手速、体力还是爆发）。${typeFocus}`,
+    `4. **选曲口味**：结合「选曲口味」一节，谈谈我的曲风分布，以及哪种曲风打得明显更好或更差、可能的原因。`,
+    `5. **谱面性质**：结合「水」/「诈称谱」社区标注与拟合定数，谈谈我的 B50 是不是靠偏水的谱堆起来的。` +
+      `并说明我的硬度分意味着什么（快照里写了口径：只看硬谱上的实际表现）。`,
+    `6. **可操作建议**：给出 3–5 条具体建议，能落到具体谱面上就落到谱面。`,
     ``,
     `约束：`,
     `- **禁止**说「高于/低于同段平均」「同水平玩家」这类话 —— 同段基准不可用，快照里写明了。`,
-    `- 不要编造数据。所有数字必须来自快照。`,
-    `- 用中文，Markdown 小标题 + 要点列表，控制在 600 字以内。`,
+    `- **不要编造数据。** 所有数字必须来自快照，或来自你通过工具查到的真实数据。`,
+    `- **推荐具体曲目之前，必须先用 search_songs 工具确认这首歌在你的曲库里存在**，不要凭印象写曲名。`,
+    `- 快照里没有的数据（某个类型没被标注、某首歌没有统计）就直说「数据缺失」，不要推测。`,
+    `- 用中文，Markdown 小标题 + 要点列表，控制在 700 字以内。`,
   ].join('\n');
 }

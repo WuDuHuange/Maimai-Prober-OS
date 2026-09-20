@@ -19,6 +19,7 @@ import { useB50Store } from './useB50Store';
 import { useSongStore } from './useSongStore';
 import { usePlayerStore } from './usePlayerStore';
 import { useTagStore } from './useTagStore';
+import { usePlayLogStore } from './usePlayLogStore';
 
 export const useAnalysisStore = defineStore('analysis', () => {
   const result = ref<B50AnalysisResult | null>(null);
@@ -58,6 +59,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       const b50Store = useB50Store();
       const songStore = useSongStore();
       const tagStore = useTagStore();
+      const playLogStore = usePlayLogStore();
 
       // 1) B50（已按谱面归并）
       if (b50Store.b50List.length === 0) await b50Store.loadFromDB();
@@ -65,18 +67,22 @@ export const useAnalysisStore = defineStore('analysis', () => {
       // 2) 曲库
       if (songStore.songs.size === 0) await songStore.loadFromDB();
 
+      // 3) 全量成绩 —— 硬度维度需要看 B50 之外的硬谱表现
+      //    （B50 只收最好的 50 首，硬谱天然被挤出，只看 B50 会零区分度）
+      if (playLogStore.records.length === 0) await playLogStore.loadFromDB();
+
       if (b50Store.b50List.length === 0) {
         lastError.value = '没有 B50 数据，请先同步战绩';
         return null;
       }
 
-      // 3) 基准 + tag —— 并行，各自独立降级
+      // 4) 基准 + tag —— 并行，各自独立降级
       await Promise.all([
         ensureStats(force).catch(() => {}),
         tagStore.load(force).catch(() => {}),
       ]);
 
-      // 4) 分析
+      // 5) 分析
       result.value = analyzeB50({
         b50List: b50Store.b50List,
         songMap: songStore.songs,
@@ -84,6 +90,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
         statsPayload: statsPayload.value,
         playerRating: usePlayerStore().currentRating,
         playerName: usePlayerStore().playerName,
+        allPlays: playLogStore.records,
       });
 
       return result.value;

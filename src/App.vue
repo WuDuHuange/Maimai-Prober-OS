@@ -40,6 +40,7 @@
             @select-song="handleSelectSong"
           />
           <GalaxyView v-else-if="activeTab === 'galaxy'" @select-song="handleSelectSong" />
+          <StatsView v-else-if="activeTab === 'stats'" />
           <SongLibraryView
             v-else-if="activeTab === 'songs'"
             @select-song="handleSelectSong"
@@ -83,6 +84,7 @@ import DashboardView from '@/views/DashboardView.vue';
 // three.js 体积较大，仅在进入 3D 星系页时按需加载
 const GalaxyView = defineAsyncComponent(() => import('@/views/GalaxyView.vue'));
 import SongLibraryView from '@/views/SongLibraryView.vue';
+import StatsView from '@/views/StatsView.vue';
 import SongDetailView from '@/views/SongDetailView.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
 import CoachReportModal from '@/components/ai/CoachReportModal.vue';

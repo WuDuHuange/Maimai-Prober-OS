@@ -69,6 +69,18 @@ export function buildReportRequest(r: B50AnalysisResult): string {
   const weakest = sorted[0];
   const strongest = sorted[sorted.length - 1];
 
+  const weakTypes = r.typeSpecialties.filter(t => t.verdict === 'weak');
+  const strongTypes = r.typeSpecialties.filter(t => t.verdict === 'strong');
+  const typeHint = [
+    weakTypes.length ? `快照里标记为短板的类型：${weakTypes.map(t => t.name).join('、')}` : '',
+    strongTypes.length ? `标记为强项的：${strongTypes.map(t => t.name).join('、')}` : '',
+  ].filter(Boolean).join('；');
+
+  const weakGenres = r.genreTastes.filter(g => g.verdict === 'weak');
+  const genreHint = weakGenres.length
+    ? `相对偏弱的曲风：${weakGenres.map(g => g.genre).join('、')}`
+    : '';
+
   const lines = [
     `我刚生成了 B50 能力分析（见上方 [L2] 快照）。请给我一份**完整的诊断报告**，我会存档反复回看。`,
     ``,
@@ -90,23 +102,36 @@ export function buildReportRequest(r: B50AnalysisResult): string {
 
   lines.push(
     ``,
-    `## 三、谱面性质分析`,
-    `结合社区标注（DXRating 的「水」/「诈称谱」）与全服拟合定数，判断我的 B50 里有多少是靠偏水的谱堆出来的。`,
-    `要点名具体谱面。快照里某项数据缺失就直说缺，不要猜。`,
+    `## 三、技术类型专项分析`,
+    `快照「技术类型专项」一节列了星星谱 / 键盘谱 / 体力谱 / 底力谱 / 高物量 五类（DXRating 社区标注）的表现。`,
+    `逐类分析：我在这一类上强不强、为什么、代表谱是哪张。**短板类型要讲透** —— ` +
+      `它具体卡在哪个环节（读谱、手速、体力分配、爆发衔接），以及练什么能改善。`,
+    typeHint ? `（${typeHint}）` : '',
     ``,
-    `## 四、可操作建议`,
+    `## 四、选曲口味与风格倾向`,
+    `结合「选曲口味」一节（水鱼官方 genre 分类）谈：我的 B50 曲风构成是什么样、哪类曲风打得明显更好或更差、` +
+      `这可能反映了什么（比如常练的曲池偏窄、或某种曲风的谱面结构更顺手）。`,
+    genreHint ? `（${genreHint}）` : '',
+    ``,
+    `## 五、谱面性质分析`,
+    `结合社区标注（DXRating 的「水」/「诈称谱」）与全服拟合定数，判断我的 B50 里有多少是靠偏水的谱堆出来的。`,
+    `另外解释我的「硬度」分：快照里写了口径 —— **只看硬谱上的实际表现，B50 内硬谱占比不计分**。要点名具体谱面。`,
+    ``,
+    `## 六、可操作建议`,
     `4–6 条，按优先级排序。每条说清「练什么 → 为什么 → 预期收益」，能落到具体曲目就给出曲名、难度和定数。`,
     ``,
-    `## 五、下阶段目标`,
-    `给出一个具体、可衡量的短期目标（例如定数区间、达成率门槛、鸟/鸟加数量）。`,
+    `## 七、下阶段目标`,
+    `给出一个具体、可衡量的短期目标（例如定数区间、达成率门槛、鸟/鸟加数量，或某个短板类型的达成率提升幅度）。`,
     ``,
     `---`,
     `约束：`,
     `- **禁止**出现「同段平均」「同水平玩家」「高于/低于平均水平」这类表述 —— 同段基准数据源当前不可用，快照里已写明原因。`,
-    `- 所有数字必须来自快照，或来自你通过工具查到的真实数据，**不许编造**。`,
+    `- **不要编造数据。** 所有数字必须来自快照，或来自你通过工具查到的真实数据。`,
+    `- **推荐具体曲目之前，必须先用 search_songs 工具确认这首歌在你的曲库里存在**，不要凭印象写曲名。`,
+    `- 快照里没有的数据（某个类型未被标注、某首歌无统计）就直说「数据缺失」，不要推测或补全。`,
     `- 需要更细的记录（某首歌的历史成绩、最近的翻车谱、某张谱的社区标注）就调工具去查，不要凭印象说。`,
-    `- 中文，Markdown 格式，总长 800–1400 字。`,
+    `- 中文，Markdown 格式，总长 1000–1600 字。`,
   );
 
-  return lines.join('\n');
+  return lines.filter(Boolean).join('\n');
 }

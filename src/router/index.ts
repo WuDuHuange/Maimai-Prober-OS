@@ -12,16 +12,6 @@ const routes = [
     component: () => import("@/views/SongDetailView.vue"),
   },
   {
-    path: "/weekly",
-    name: "weekly",
-    component: () => import("@/views/WeeklyView.vue"),
-  },
-  {
-    path: "/sync-log",
-    name: "sync-log",
-    component: () => import("@/views/SyncLogView.vue"),
-  },
-  {
     path: "/settings",
     name: "settings",
     component: () => import("@/views/SettingsView.vue"),

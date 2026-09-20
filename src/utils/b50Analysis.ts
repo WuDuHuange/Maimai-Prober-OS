@@ -18,16 +18,17 @@
  * |---|---|---|---|
  * | power | 底力 | B50 平均定数 | 11.0 → 15.0 |
  * | precision | 精度 | B50 平均达成率 | 97.5 → 100.2 |
- * | consistency | 稳定 | B50 内达成率标准差（逆向） | 1.8 → 0.4 |
- * | breadth | 广度 | 「配置」组 tag 的香农熵（归一化） | 0 → ln(K) |
- * | hardness | 硬度 | 诈称谱 tag 占比 | 0 → 45% |
+ * | consistency | 稳定 | B50 内达成率标准差（逆向） | 1.4 → 0.3 |
+ * | balance | 专项均衡 | 各技术类型中**最弱一类**的 ownDelta | −1.2 → +0.2 |
+ * | hardness | 硬度 | 混合口径：B50 内硬谱占比 + 全成绩硬谱表现 | 见 HardnessBreakdown |
  * | adaptation | 版本适应 | B15 平均定数 ÷ B35 平均定数 | 0.97 → 1.03 |
  */
 import type { B50Record } from '@/types/b50';
+import type { PlayRecord } from '@/types/playRecord';
 import type { SongMeta, DifficultyType } from '@/types/song';
 import { getConstByDifficulty } from '@/types/song';
 import type { TagCatalog } from '@/types/tag';
-import { DIFFICULTY_INDEX, TAG_IDS, TAG_GROUP_IDS, chartTagKey } from '@/types/tag';
+import { DIFFICULTY_INDEX, TAG_IDS, TAG_GROUP_IDS, EVALUATION_TAG_ORDER, chartTagKey } from '@/types/tag';
 import type { ChartStatsPayload } from '@/services/chartStatsApi';
 import { getChartStat } from '@/services/chartStatsApi';
 import type {
@@ -36,6 +37,11 @@ import type {
   B50AnalysisResult,
   B50Structure,
   ChartAnalysis,
+  GenreTaste,
+  HardnessBreakdown,
+  RelativeVerdict,
+  TypeChartRef,
+  TypeSpecialty,
   WaterBaseline,
 } from '@/types/b50Analysis';
 
@@ -128,10 +134,60 @@ export interface AnalyzeB50Input {
   statsPayload: ChartStatsPayload | null;
   playerRating: number;
   playerName: string;
+  /**
+   * 全量游玩记录（含历史重复行）。
+   * 用途：**硬度**维度需要看 B50 之外的硬谱表现 ——
+   * 因为 B50 只收「打得最好的 50 首」，硬谱天然被挤出，只看 B50 会让该维度零区分度。
+   * 省略或传空数组时，硬度退化为「只看 B50 内占比」的旧口径。
+   */
+  allPlays?: PlayRecord[];
+}
+
+/** 类型/曲风相对表现的判定阈值（基于 ownDelta，B50 内部对比） */
+const VERDICT_STRONG = 0.3;
+const VERDICT_WEAK = -0.3;
+/** 一个类型至少要有这么多谱面才敢下判定 */
+const MIN_CHARTS_FOR_VERDICT = 3;
+
+/**
+ * 小样本收缩常数（James-Stein 风格）。
+ *
+ * 为什么需要：星星谱在 DXRating 里只有 284 个标注，一个玩家 B50 里可能只命中 3 张。
+ * 3 张谱的平均 ownDelta 波动极大，**一个偶然的低分就能把「专项均衡」整维打到 0 分**。
+ * 收缩 `Δ' = Δ × n / (n + K)` 让观测值向 0 靠：n=3 时只信 43%，n=25 时信 86%。
+ *
+ * ⚠️ `verdict` 用**原始 Δ**（给用户看观测事实），「专项均衡」维度用**收缩 Δ**（稳健推断）。
+ */
+const SHRINK_K = 4;
+
+function shrink(delta: number, n: number): number {
+  return delta * (n / (n + SHRINK_K));
+}
+
+/** 硬谱取样条数（全成绩口径） */
+const HARD_SAMPLE_SIZE = 8;
+
+function verdictOf(ownDelta: number | null, count: number): RelativeVerdict {
+  if (count < MIN_CHARTS_FOR_VERDICT || ownDelta == null) return 'insufficient';
+  if (ownDelta >= VERDICT_STRONG) return 'strong';
+  if (ownDelta <= VERDICT_WEAK) return 'weak';
+  return 'neutral';
+}
+
+function toRef(c: ChartAnalysis): TypeChartRef {
+  return {
+    songId: c.songId,
+    title: c.title,
+    difficulty: c.difficulty,
+    constant: c.constant,
+    achievements: c.achievements,
+    ownDelta: c.ownDelta,
+  };
 }
 
 export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
   const { b50List, songMap, tagCatalog, statsPayload, playerRating, playerName } = input;
+  const allPlays = input.allPlays ?? [];
 
   const waterBaseline = computeWaterBaseline(statsPayload);
 
@@ -147,7 +203,10 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
   }
 
   const structure = buildStructure(charts, ownAvg);
-  const dimensions = buildDimensions(charts, structure, tagCatalog);
+  const typeSpecialties = buildTypeSpecialties(charts, tagCatalog);
+  const genreTastes = buildGenreTastes(charts, songMap);
+  const hardness = buildHardness(charts, allPlays, songMap, tagCatalog, statsPayload, waterBaseline, ownAvg);
+  const dimensions = buildDimensions(structure, typeSpecialties, hardness);
   const highlights = buildHighlights(charts);
   const matched = charts.filter(c => c.stat !== null).length;
 
@@ -163,8 +222,11 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
     dimensions,
     structure,
     highlights,
+    typeSpecialties,
+    genreTastes,
+    hardness,
     charts,
-    headline: buildHeadline(dimensions, structure, highlights),
+    headline: buildHeadline(dimensions, structure, highlights, typeSpecialties),
   };
 }
 
@@ -264,9 +326,9 @@ function buildStructure(charts: ChartAnalysis[], ownAvg: number): B50Structure {
 // ---- 六维 ----
 
 function buildDimensions(
-  charts: ChartAnalysis[],
   structure: B50Structure,
-  tagCatalog: TagCatalog | null
+  typeSpecialties: TypeSpecialty[],
+  hardness: HardnessBreakdown
 ): AbilityDimension[] {
   const dims: AbilityDimension[] = [];
 
@@ -300,77 +362,37 @@ function buildDimensions(
     basis: 'B50 内达成率标准差（越小越稳），映射区间 1.4 → 0.3',
   });
 
-  // 4) 广度 —— 「配置」组 tag 的香农熵
-  const configTags = (tagCatalog?.tags ?? []).filter(t => t.groupId === TAG_GROUP_IDS.CONFIG);
-  const configIds = new Set(configTags.map(t => t.id));
-  const configCount = new Map<number, number>();
-  let configTotal = 0;
-  for (const c of charts) {
-    for (const t of c.tags) {
-      if (!configIds.has(t.id)) continue;
-      configCount.set(t.id, (configCount.get(t.id) ?? 0) + 1);
-      configTotal++;
-    }
-  }
-
-  if (configTotal === 0 || configTags.length < 2) {
+  // 4) 专项均衡 —— 木桶原理：取各技术类型里**最弱**那一类的 ownDelta
+  //    （原「广度」用配置组 14 个 tag 的香农熵，样本量敏感 + 不可操作 + 与底力共线，已废弃）
+  //    用收缩后的 Δ 判定，避免 3 张样本的偶然低分主导整维
+  const ratedTypes = typeSpecialties.filter(t => t.verdict !== 'insufficient' && t.avgOwnDelta != null);
+  const shrunk = ratedTypes.map(t => ({ t, d: shrink(t.avgOwnDelta!, t.chartCount) }));
+  if (shrunk.length < 2) {
     dims.push({
-      id: 'breadth', label: '广度', score: 50, raw: 0, rawLabel: '无标注数据',
-      basis: 'B50 谱面的技术配置 tag 覆盖广度 —— 数据不足，取中性值 50',
+      id: 'balance', label: '专项均衡', score: 50, raw: 0,
+      rawLabel: `可比类型仅 ${shrunk.length} 类`,
+      basis: '各技术类型（星星谱/键盘谱/体力谱/底力谱/高物量）中最弱一类的相对表现 —— 社区标注覆盖不足，取中性值 50',
       insufficient: true,
     });
   } else {
-    let entropy = 0;
-    for (const count of configCount.values()) {
-      const p = count / configTotal;
-      entropy -= p * Math.log(p);
-    }
-    const maxEntropy = Math.log(configTags.length);
-    const normalized = maxEntropy > 0 ? entropy / maxEntropy : 0;
+    const worst = shrunk.reduce((a, b) => (a.d <= b.d ? a : b));
     dims.push({
-      id: 'breadth',
-      label: '广度',
-      score: Math.round(clamp(normalized * 100, 0, 100)),
-      raw: round(entropy, 3),
-      rawLabel: `配置类型 ${configCount.size}/${configTags.length} 种`,
-      basis: `B50 命中「配置」组 ${configCount.size} 种 tag 的香农熵 ÷ 上限 ln(${configTags.length})`,
+      id: 'balance',
+      label: '专项均衡',
+      score: Math.round(mapRange(worst.d, -1.0, 0.2)),
+      raw: round(worst.t.avgOwnDelta!, 3),
+      rawLabel:
+        `最弱「${worst.t.name}」Δ${worst.t.avgOwnDelta! >= 0 ? '+' : ''}${worst.t.avgOwnDelta!.toFixed(2)}` +
+        `（${worst.t.chartCount} 张，收缩后 ${worst.d >= 0 ? '+' : ''}${worst.d.toFixed(2)}；${shrunk.length} 类可比）`,
+      basis:
+        `B50 命中的 ${shrunk.length} 个技术类型中，最弱一类的 ownDelta（相对本人 B50 平均达成率），` +
+        `映射区间 −1.0 → +0.2。分数越高 = 各类型越均衡，短板越不拖后腿。` +
+        `⚠️ 已对小样本类型做收缩（Δ × n/(n+${SHRINK_K})），避免只有两三张谱的类型靠偶然波动主导整维。`,
     });
   }
 
-  // 5) 硬度 —— 诈称谱占比（只按社区标注算；无标注时退到统计口径）
-  const rated = charts.filter(c => c.tags.length > 0).length;
-  const underratedCount = charts.filter(c => c.hasUnderratedTag).length;
-  if (rated === 0) {
-    const hardByStat = charts.filter(c => c.isHardByStat).length;
-    const withStat = charts.filter(c => c.waterZ != null).length;
-    if (withStat === 0) {
-      dims.push({
-        id: 'hardness', label: '硬度', score: 50, raw: 0, rawLabel: '无标注且无统计',
-        basis: 'B50 中「诈称谱」占比 —— 社区标注与统计基准都不可用，取中性值 50',
-        insufficient: true,
-      });
-    } else {
-      const rate = hardByStat / withStat;
-      dims.push({
-        id: 'hardness',
-        label: '硬度',
-        score: Math.round(mapRange(rate, 0, 0.45)),
-        raw: round(rate, 4),
-        rawLabel: `统计口径偏硬 ${hardByStat}/${withStat}（${(rate * 100).toFixed(1)}%）`,
-        basis: '社区标注不可用，退回统计口径：水度 z ≤ −1.5 的谱面占比，映射区间 0% → 45%',
-      });
-    }
-  } else {
-    const rate = underratedCount / rated;
-    dims.push({
-      id: 'hardness',
-      label: '硬度',
-      score: Math.round(mapRange(rate, 0, 0.45)),
-      raw: round(rate, 4),
-      rawLabel: `诈称谱 ${underratedCount}/${rated}（${(rate * 100).toFixed(1)}%）`,
-      basis: 'B50 中带「诈称谱」社区标注的谱面占比，映射区间 0% → 45%',
-    });
-  }
+  // 5) 硬度 —— 混合口径（B50 内占比 + 全成绩硬谱表现）
+  dims.push(buildHardnessDimension(hardness));
 
   // 6) 版本适应
   if (structure.b15Count < 3 || structure.b35AvgConst <= 0) {
@@ -393,6 +415,215 @@ function buildDimensions(
   }
 
   return dims;
+}
+
+/**
+ * 硬度维度。
+ *
+ * 口径：**只看硬谱上的实际表现** —— B50 内外的硬谱合并后取达成率最高的若干张，
+ * 与本人 B50 平均达成率作差。差得少说明硬谱上并不吃亏。
+ *
+ * 为什么不把「B50 内硬谱占比」算进分数：B50 只收打得最好的 50 首，
+ * 而诈称谱难打 → 天然被挤出 → 占比低是**必然结果**，不是玩家短板。
+ * 该占比只在 rawLabel 里作为描述信息出现。
+ */
+function buildHardnessDimension(h: HardnessBreakdown): AbilityDimension {
+  if (h.hardDelta == null) {
+    return {
+      id: 'hardness', label: '硬度', score: 50, raw: 0,
+      rawLabel: `未找到硬谱（B50 内 ${h.b50HardCount}/${h.b50RatedCount}）`,
+      basis:
+        '硬谱上的相对表现 —— 社区标注与统计基准都没能识别出任何硬谱，取中性值 50。' +
+        '通常意味着 B50 全是有标注的软谱，或统计基准不可用。',
+      insufficient: true,
+    };
+  }
+
+  return {
+    id: 'hardness',
+    label: '硬度',
+    score: Math.round(mapRange(h.hardDelta, -8, 0)),
+    raw: round(h.hardDelta, 3),
+    rawLabel:
+      `硬谱 ${h.hardCount} 张（B50 内 ${h.b50HardCount}）· 取样 ${h.samples.length} 张平均 ` +
+      `${h.sampleAvgAchievement?.toFixed(2) ?? '?'}%（Δ${h.hardDelta >= 0 ? '+' : ''}${h.hardDelta.toFixed(2)}）`,
+    basis:
+      '硬谱（社区标「诈称谱」或统计口径水度 z ≤ −1.5）上的实际表现：' +
+      '把 B50 内外的硬谱合并、按谱面取最高成就，再取达成率最高的若干张，' +
+      '算它们相对本人 B50 平均达成率的差，映射区间 −8% → 0%。' +
+      '⚠️ B50 内硬谱占比**不计入分数** —— B50 只收打得最好的 50 首，硬谱难打所以天然被挤出，' +
+      '占比低是必然结果而非短板。',
+  };
+}
+
+/**
+ * 类型专项 —— 基于 DXRating「评价」组 tag。
+ * 动态按 `groupId === EVALUATION` 过滤，DXRating 将来新增评价 tag 会自动纳入。
+ */
+function buildTypeSpecialties(
+  charts: ChartAnalysis[],
+  tagCatalog: TagCatalog | null
+): TypeSpecialty[] {
+  const evalTags = (tagCatalog?.tags ?? []).filter(t => t.groupId === TAG_GROUP_IDS.EVALUATION);
+  if (evalTags.length === 0) return [];
+
+  const out: TypeSpecialty[] = evalTags.map(tag => {
+    const matched = charts.filter(c => c.tags.some(t => t.id === tag.id));
+    const avgOwnDelta = matched.length ? round(mean(matched.map(c => c.ownDelta)), 3) : null;
+    const avgAchievement = matched.length ? round(mean(matched.map(c => c.achievements)), 3) : null;
+
+    let bestChart: TypeChartRef | null = null;
+    let worstChart: TypeChartRef | null = null;
+    if (matched.length) {
+      const sorted = [...matched].sort((a, b) => b.ownDelta - a.ownDelta);
+      bestChart = toRef(sorted[0]);
+      worstChart = toRef(sorted[sorted.length - 1]);
+    }
+
+    return {
+      tagId: tag.id,
+      name: tag.name,
+      description: tag.description,
+      chartCount: matched.length,
+      avgAchievement,
+      avgOwnDelta,
+      verdict: verdictOf(avgOwnDelta, matched.length),
+      bestChart,
+      worstChart,
+    };
+  });
+
+  // 预设顺序优先，未列出的排最后；同序按命中数降序
+  const orderIndex = (id: number) => {
+    const i = EVALUATION_TAG_ORDER.indexOf(id);
+    return i < 0 ? EVALUATION_TAG_ORDER.length : i;
+  };
+  return out.sort((a, b) => orderIndex(a.tagId) - orderIndex(b.tagId) || b.chartCount - a.chartCount);
+}
+
+/** 曲风口味 —— 官方 genre 字段，按张数降序 */
+function buildGenreTastes(
+  charts: ChartAnalysis[],
+  songMap: Map<number, SongMeta>
+): GenreTaste[] {
+  const buckets = new Map<string, ChartAnalysis[]>();
+  for (const c of charts) {
+    const genre = songMap.get(c.songId)?.genre?.trim();
+    if (!genre) continue;
+    const arr = buckets.get(genre);
+    if (arr) arr.push(c);
+    else buckets.set(genre, [c]);
+  }
+
+  const total = charts.length || 1;
+  return [...buckets.entries()]
+    .map(([genre, arr]): GenreTaste => {
+      const avgOwnDelta = round(mean(arr.map(c => c.ownDelta)), 3);
+      return {
+        genre,
+        chartCount: arr.length,
+        share: round(arr.length / total, 4),
+        avgAchievement: round(mean(arr.map(c => c.achievements)), 3),
+        avgOwnDelta,
+        verdict: verdictOf(avgOwnDelta, arr.length),
+      };
+    })
+    .sort((a, b) => b.chartCount - a.chartCount);
+}
+
+/**
+ * 硬度取数。
+ *
+ * 把 **B50 内外的硬谱合并**（按谱面归并，B50 的谱面不重复计入），
+ * 取达成率最高的若干张，与本人 B50 平均达成率作差。
+ *
+ * 判定「硬谱」的两个口径（满足其一即可）：
+ *   a) 社区标注「诈称谱」
+ *   b) 统计口径：水度分难度 z-score ≤ −1.5
+ */
+function buildHardness(
+  charts: ChartAnalysis[],
+  allPlays: PlayRecord[],
+  songMap: Map<number, SongMeta>,
+  tagCatalog: TagCatalog | null,
+  statsPayload: ChartStatsPayload | null,
+  waterBaseline: Map<number, WaterBaseline>,
+  ownAvg: number
+): HardnessBreakdown {
+  // ── 描述性：B50 内硬谱（不参与评分，见 HardnessBreakdown 注释） ──
+  const b50Rated = charts.filter(c => c.tags.length > 0 || c.waterZ != null);
+  const b50Hard = b50Rated.filter(c => c.hasUnderratedTag || c.isHardByStat);
+
+  // ── 评分口径：B50 内硬谱先入池 ──
+  const hardRefs: TypeChartRef[] = b50Hard.map(toRef);
+
+  // ── 再把 B50 之外的硬谱补进来（同一谱面只留最高达成率那一条） ──
+  const bestByChart = new Map<string, PlayRecord>();
+  for (const p of allPlays) {
+    const key = chartTagKey(p.songId, p.difficulty);
+    const prev = bestByChart.get(key);
+    if (!prev || p.achievements > prev.achievements) bestByChart.set(key, p);
+  }
+
+  const inB50 = new Set(charts.map(c => chartTagKey(c.songId, c.difficulty)));
+
+  for (const [key, p] of bestByChart) {
+    if (inB50.has(key)) continue;
+
+    const byTag = (tagCatalog?.byChart.get(key) ?? []).some(t => t.id === TAG_IDS.UNDERRATED);
+
+    let byStat = false;
+    const levelIndex = DIFFICULTY_INDEX[p.difficulty];
+    if (!byTag && statsPayload && levelIndex != null) {
+      const song = songMap.get(p.songId);
+      const constant = song
+        ? getConstByDifficulty(song, p.difficulty)
+        : (typeof p.constant === 'number' ? p.constant : null);
+      const raw = getChartStat(statsPayload, p.songId, levelIndex);
+      if (raw && constant != null) {
+        const baseline = waterBaseline.get(levelIndex);
+        if (baseline && baseline.std > 1e-6) {
+          const z = (constant - raw.fit_diff - baseline.mean) / baseline.std;
+          byStat = z <= -1.5;
+        }
+      }
+    }
+
+    if (!byTag && !byStat) continue;
+
+    const song = songMap.get(p.songId);
+    const constant = song
+      ? getConstByDifficulty(song, p.difficulty)
+      : (typeof p.constant === 'number' ? p.constant : null);
+    hardRefs.push({
+      songId: p.songId,
+      title: song?.title ?? `#${p.songId}`,
+      difficulty: p.difficulty,
+      constant,
+      achievements: round(p.achievements, 3),
+      ownDelta: round(p.achievements - ownAvg, 3),
+    });
+  }
+
+  hardRefs.sort((a, b) => b.achievements - a.achievements);
+  const samples = hardRefs.slice(0, HARD_SAMPLE_SIZE);
+
+  // 样本太少时不硬给结论（3 张以下的平均波动过大）
+  const enough = samples.length >= MIN_CHARTS_FOR_VERDICT;
+  const sampleAvgAchievement = enough ? round(mean(samples.map(s => s.achievements)), 3) : null;
+  const hardDelta = sampleAvgAchievement != null
+    ? round(sampleAvgAchievement - ownAvg, 3)
+    : null;
+
+  return {
+    hardCount: hardRefs.length,
+    b50HardCount: b50Hard.length,
+    b50RatedCount: b50Rated.length,
+    b50HardRate: round(b50Rated.length > 0 ? b50Hard.length / b50Rated.length : 0, 4),
+    sampleAvgAchievement,
+    hardDelta,
+    samples,
+  };
 }
 
 // ---- 亮点与风险 ----
@@ -424,7 +655,8 @@ function buildHighlights(charts: ChartAnalysis[]): AnalysisHighlights {
 function buildHeadline(
   dims: AbilityDimension[],
   structure: B50Structure,
-  highlights: AnalysisHighlights
+  highlights: AnalysisHighlights,
+  typeSpecialties: TypeSpecialty[]
 ): string {
   const valid = dims.filter(d => !d.insufficient);
   const strongest = [...valid].sort((a, b) => b.score - a.score)[0];
@@ -439,6 +671,20 @@ function buildHeadline(
 
   if (strongest && weakest && strongest.id !== weakest.id) {
     parts.push(`六维中「${strongest.label}」最突出（${strongest.score}），「${weakest.label}」相对最弱（${weakest.score}）。`);
+  }
+
+  // 最弱技术类型 —— 这是最可操作的一条信息，优先于泛泛的维度描述
+  const ratedTypes = typeSpecialties.filter(t => t.verdict !== 'insufficient');
+  const weakTypes = ratedTypes.filter(t => t.verdict === 'weak').sort(
+    (a, b) => (a.avgOwnDelta ?? 0) - (b.avgOwnDelta ?? 0)
+  );
+  if (weakTypes.length > 0) {
+    const w = weakTypes[0];
+    parts.push(
+      `技术类型里「${w.name}」是短板（${w.chartCount} 张，相对自身平均 ${w.avgOwnDelta! >= 0 ? '+' : ''}${w.avgOwnDelta!.toFixed(2)}%）。`
+    );
+  } else if (ratedTypes.length > 0) {
+    parts.push(`技术类型分布较均衡，${ratedTypes.length} 类谱面都没有明显短板。`);
   }
 
   const water = highlights.waterCharts.length;

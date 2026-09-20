@@ -91,13 +91,31 @@ export interface TagCatalogStats {
 
 /** 谱面 tag 的语义分类（用于分析算法取数） */
 export const TAG_IDS = {
-  /** 水 / Overrated —— 社区认为比标称难度容易 */
+  /** 水 / Overrated —— 社区认为比标称难度容易（属「难度」组） */
   OVERRATED: 11,
-  /** 诈称谱 / Underrated —— 社区认为比标称难度难 */
+  /** 诈称谱 / Underrated —— 社区认为比标称难度难（属「难度」组） */
   UNDERRATED: 13,
-  /** 高物量 / Dense */
+  /** 高物量 / Dense（属「评价」组） */
   DENSE: 22,
+  // ── 以下同属「评价」组，用于「类型专项」分析 ──
+  /** 星星谱 */
+  STAR: 14,
+  /** 键盘谱 */
+  KEYBOARD: 15,
+  /** 底力谱 */
+  POWER: 16,
+  /** 体力谱 */
+  STAMINA: 21,
 } as const;
+
+/**
+ * 「评价」组 tag 的稳定排序 —— UI 展示时按这个顺序，避免被 `chartCount` 排序打乱。
+ * ⚠️ 只用于**排序偏好**；取数请按 `groupId === TAG_GROUP_IDS.EVALUATION` 动态过滤，
+ *    这样 DXRating 将来新增评价 tag 会自动纳入。
+ */
+export const EVALUATION_TAG_ORDER: number[] = [
+  TAG_IDS.KEYBOARD, TAG_IDS.POWER, TAG_IDS.STAR, TAG_IDS.STAMINA, TAG_IDS.DENSE,
+];
 
 /** 分组 id */
 export const TAG_GROUP_IDS = {

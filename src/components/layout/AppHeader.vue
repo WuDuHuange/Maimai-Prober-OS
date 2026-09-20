@@ -1,5 +1,12 @@
 <template>
   <header class="top-header">
+    <!-- 窄屏：唤起左侧抽屉（宽屏下 CSS 隐藏） -->
+    <button class="menu-btn" title="展开侧栏" @click="toggleLeftDrawer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <path d="M3 6h18M3 12h18M3 18h18" />
+      </svg>
+    </button>
+
     <div class="header-left">
       <div class="logo-icon">M</div>
       <span class="logo-text">Maimai-Prober-OS</span>
@@ -45,6 +52,11 @@ defineEmits<{ 'update:modelValue': [key: string] }>();
 const playerStore = usePlayerStore();
 const fileInput = ref<HTMLInputElement | null>(null);
 
+/** 窄屏下唤起 / 收起左侧抽屉（LeftSidebar 监听此事件） */
+function toggleLeftDrawer() {
+  window.dispatchEvent(new CustomEvent('toggle-left-drawer'));
+}
+
 function triggerUpload() {
   fileInput.value?.click();
 }
@@ -76,6 +88,7 @@ function onFileChange(e: Event) {
 
 const navItems = [
   { key: 'overview', label: '总览' },
+  { key: 'stats', label: '统计' },
   { key: 'galaxy', label: '3D 星系' },
   { key: 'songs', label: '歌曲库' },
   { key: 'ai', label: 'AI复盘' },
@@ -165,6 +178,7 @@ const syncClass = computed(() => {
   position: relative;
   transition: all var(--transition-smooth);
   white-space: nowrap;
+  flex-shrink: 0;
   letter-spacing: var(--letter-spacing-normal);
 }
 
@@ -258,5 +272,51 @@ const syncClass = computed(() => {
 .nickname {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* ===== 窄屏汉堡按钮：默认不占位，只在 <1180 出现 ===== */
+.menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.menu-btn:hover {
+  color: var(--color-primary);
+  border-color: rgba(74, 114, 255, 0.3);
+  background: #fff;
+}
+
+/* ===== 响应式：<1180 头部瘦身，让出导航宽度 ===== */
+@media (max-width: 1179px) {
+  .top-header { padding: 0 14px; gap: 12px; }
+  .menu-btn { display: flex; }
+  .logo-text, .pro-tag { display: none; }
+  .nickname { display: none; }
+  .header-nav { justify-content: flex-start; }
+  .nav-link { padding: 8px 12px; font-size: 12.5px; }
+}
+
+/* ===== 响应式：<900 进一步压缩，导航可横向滚动 ===== */
+@media (max-width: 899px) {
+  .top-header { padding: 0 10px; gap: 8px; }
+  .header-right { gap: 10px; }
+  .notification { display: none; }
+  .sync-badge { padding: 5px 9px; }
+  .nav-link { padding: 7px 9px; font-size: 12px; }
+  .header-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .header-nav::-webkit-scrollbar { display: none; }
 }
 </style>

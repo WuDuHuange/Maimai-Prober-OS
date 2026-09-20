@@ -32,7 +32,7 @@
 
     <!-- ============ 已分析 ============ -->
     <template v-else-if="result">
-      <div class="result-head">
+      <div ref="headRef" class="result-head" :class="{ stuck }">
         <div class="head-left">
           <span class="head-title">B50 能力分析</span>
           <span class="head-time">{{ shortTime }}</span>
@@ -59,6 +59,72 @@
           <span class="dim-raw" :title="d.basis">{{ d.rawLabel }}</span>
         </div>
       </div>
+
+      <!-- ① 技术类型专项（DXRating 评价组） -->
+      <section v-if="visibleTypes.length" class="panel" :style="{ '--d': 0 }">
+        <div class="panel-head">
+          <span class="panel-title">技术类型专项</span>
+          <span class="panel-hint">相对本人 B50 平均</span>
+        </div>
+        <div class="type-list">
+          <div v-for="(t, i) in visibleTypes" :key="t.tagId" class="type-row" :style="{ '--d': i }">
+            <span class="type-name">{{ t.name }}</span>
+            <span class="type-track">
+              <span class="type-axis" />
+              <span
+                v-if="t.avgOwnDelta != null"
+                class="type-bar"
+                :class="t.avgOwnDelta < 0 ? 'neg' : 'pos'"
+                :style="{ width: barW(t) }"
+              />
+            </span>
+            <span class="type-val" :class="deltaClass(t.avgOwnDelta)">{{ fmtDelta(t.avgOwnDelta) }}</span>
+            <span class="type-count">{{ t.chartCount }} 张</span>
+            <span class="type-badge-slot">
+              <i v-if="t.verdict === 'strong'" class="v-badge strong">强项</i>
+              <i v-else-if="t.verdict === 'weak'" class="v-badge weak">短板</i>
+            </span>
+          </div>
+        </div>
+        <p class="panel-note">{{ typeNote }}</p>
+      </section>
+
+      <!-- ② 选曲口味（官方 genre） -->
+      <section v-if="genres.length" class="panel" :style="{ '--d': 1 }">
+        <div class="panel-head">
+          <span class="panel-title">选曲口味</span>
+          <span class="panel-hint">B50 曲风占比 · 官方分类</span>
+        </div>
+        <div class="genre-list">
+          <div v-for="(g, i) in genres" :key="g.genre" class="genre-row" :style="{ '--d': i }">
+            <span class="genre-name">{{ g.genre }}</span>
+            <span class="genre-track"><span class="genre-fill" :style="{ width: pct(g.share) }" /></span>
+            <span class="genre-share">{{ pct(g.share) }}</span>
+            <span class="genre-delta" :class="deltaClass(g.avgOwnDelta)">{{ fmtDelta(g.avgOwnDelta) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 定数分布 -->
+      <section v-if="hist.length" class="panel" :style="{ '--d': 2 }">
+        <div class="panel-head">
+          <span class="panel-title">定数分布</span>
+          <span class="panel-hint">B50 难度构成</span>
+        </div>
+        <div class="hist">
+          <div
+            v-for="(h, i) in hist"
+            :key="h.label"
+            class="hist-col"
+            :style="{ '--d': i }"
+            :title="`定数 ${h.label} → ${h.count} 张`"
+          >
+            <span class="hist-count">{{ h.count || '' }}</span>
+            <span class="hist-bar" :style="{ height: histPct(h) }" />
+            <span class="hist-label">{{ h.label }}</span>
+          </div>
+        </div>
+      </section>
 
       <!-- 总评 -->
       <p class="headline">{{ result.headline }}</p>
@@ -166,13 +232,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import AbilityRadarChart from '@/components/charts/AbilityRadarChart.vue';
 import { useAnalysisStore } from '@/stores/useAnalysisStore';
 import { useAIChatStore } from '@/stores/useAIChatStore';
 import { useCoachReportStore } from '@/stores/useCoachReportStore';
 import { DIFFICULTY_LABEL_SHORT, type DifficultyType } from '@/types/song';
-import type { ChartAnalysis } from '@/types/b50Analysis';
+import type { ChartAnalysis, TypeSpecialty } from '@/types/b50Analysis';
 
 defineEmits<{
   analyze: [];
@@ -230,6 +296,87 @@ const quickQuestions = [
   '我该怎么提升最弱的那一维？',
   '推荐几张针对性练习曲',
 ];
+
+/* ================= 新面板数据 ================= */
+
+/** Δ 的显示上限（发散条半幅）；超出直接夹住，避免个别极值把刻度压扁 */
+const DELTA_RANGE = 2.0;
+const VERDICT_STRONG = 0.3;
+const VERDICT_WEAK = -0.3;
+
+const visibleTypes = computed(() =>
+  (result.value?.typeSpecialties ?? []).filter(t => t.chartCount > 0)
+);
+const genres = computed(() =>
+  (result.value?.genreTastes ?? []).filter(g => g.chartCount > 0)
+);
+const hist = computed(() => result.value?.structure.constHistogram ?? []);
+const histMax = computed(() => Math.max(1, ...hist.value.map(h => h.count)));
+
+/** 发散条：从中轴向左右伸，半幅 = DELTA_RANGE */
+function barW(t: TypeSpecialty): string {
+  const v = Math.min(Math.abs(t.avgOwnDelta ?? 0), DELTA_RANGE);
+  return `${(v / DELTA_RANGE) * 50}%`;
+}
+
+function pct(share: number): string {
+  return `${(share * 100).toFixed(1)}%`;
+}
+
+function histPct(h: { count: number }): string {
+  return `${Math.max(3, (h.count / histMax.value) * 100)}%`;
+}
+
+function fmtDelta(v: number | null): string {
+  if (v == null) return '—';
+  return `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
+}
+
+function deltaClass(v: number | null): string {
+  if (v == null) return 'delta-muted';
+  if (v >= VERDICT_STRONG) return 'delta-pos';
+  if (v <= VERDICT_WEAK) return 'delta-neg';
+  return 'delta-neutral';
+}
+
+/** 说明哪些类型样本不足 —— 覆盖率低的类型不该被硬给结论 */
+const typeNote = computed(() => {
+  const all = result.value?.typeSpecialties ?? [];
+  const insuff = all.filter(t => t.verdict === 'insufficient');
+  const base = 'Δ = 该类谱平均达成率 − 本人 B50 平均达成率（正 = 这类谱比你的平均打得好）。数据来自 DXRating 社区标注。';
+  if (!insuff.length) return base;
+  return `${insuff.map(t => t.name).join('、')} 在 B50 里样本不足 3 张，未参与判定。${base}`;
+});
+
+/* ================= 滚动吸附 ================= */
+// 「收起」按钮原本会被长内容顶出可视区，必须滚回去才能点到。
+// 这里把标题栏做成 sticky，并只在真正吸住时加分隔线/投影，避免常态多一条线。
+const headRef = ref<HTMLElement | null>(null);
+const stuck = ref(false);
+let scrollHost: HTMLElement | Window | null = null;
+
+function onScroll() {
+  const el = headRef.value;
+  if (!el) return;
+  const base = scrollHost instanceof HTMLElement
+    ? scrollHost.getBoundingClientRect().top
+    : 0;
+  stuck.value = el.getBoundingClientRect().top <= base + 1;
+}
+
+watch(headRef, (el) => {
+  if (scrollHost) scrollHost.removeEventListener('scroll', onScroll);
+  // 卡片的滚动容器是 .coach-card-wrap（AIChatPanel 里限高的那个）
+  scrollHost = el
+    ? ((el.closest('.coach-card-wrap') as HTMLElement | null) ?? window)
+    : null;
+  scrollHost?.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}, { flush: 'post' });
+
+onUnmounted(() => {
+  scrollHost?.removeEventListener('scroll', onScroll);
+});
 
 function top(list: ChartAnalysis[], n = 3) {
   return list.slice(0, n);
@@ -325,7 +472,27 @@ function diffLabel(d: DifficultyType) {
 .loading-text { font-size: 12px; color: var(--text-secondary); }
 
 /* ===== 结果 ===== */
-.result-head { display: flex; align-items: center; justify-content: space-between; }
+/* 吸附头部：卡片内容很长时，「收起」按钮会滚出可视区 —— 用户必须滑回去才能点。
+   做成 sticky 后始终贴住 .coach-card-wrap 顶部；分隔线只在真正吸住时出现。 */
+.result-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 8px;
+  margin-top: -4px;
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.result-head.stuck {
+  border-bottom-color: var(--border-color-light);
+  box-shadow: 0 8px 16px -14px rgba(15, 23, 42, 0.55);
+}
 .head-left { display: flex; align-items: baseline; gap: 8px; }
 .head-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 .head-time { font-size: 10px; color: var(--text-muted); }
@@ -463,4 +630,236 @@ function diffLabel(d: DifficultyType) {
 }
 .ask-chip:hover:not(:disabled) { background: rgba(74,114,255,0.12); border-color: rgba(74,114,255,0.4); }
 .ask-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ============================================================
+   新增三个面板：技术类型专项 / 选曲口味 / 定数分布
+   ============================================================ */
+.panel {
+  padding: 12px 13px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color-light);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: panel-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 70ms);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel-title { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+.panel-hint { font-size: 10px; color: var(--text-muted); }
+
+.panel-note {
+  font-size: 10px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  padding-top: 2px;
+  border-top: 1px dashed rgba(139, 155, 180, 0.25);
+}
+
+/* ---- ① 技术类型专项：中轴发散条 ---- */
+.type-list { display: flex; flex-direction: column; gap: 7px; }
+
+.type-row {
+  display: grid;
+  grid-template-columns: 62px 1fr 48px 38px 34px;
+  align-items: center;
+  gap: 8px;
+  animation: row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms);
+}
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateX(-5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.type-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(139, 155, 180, 0.14);
+}
+.type-axis {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: rgba(100, 116, 139, 0.4);
+}
+.type-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  animation: bar-grow 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms + 120ms);
+}
+.type-bar.neg {
+  right: 50%;
+  border-radius: 999px 0 0 999px;
+  background: linear-gradient(90deg, #F59E0B, #EF4444);
+  transform-origin: right center;
+}
+.type-bar.pos {
+  left: 50%;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, #10B981, #34D399);
+  transform-origin: left center;
+}
+
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.type-val {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.type-count { font-size: 10px; color: var(--text-muted); text-align: right; }
+.type-badge-slot { display: flex; justify-content: flex-end; }
+
+.v-badge {
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.v-badge.strong { background: rgba(16, 185, 129, 0.12); color: #047857; }
+.v-badge.weak { background: rgba(245, 158, 11, 0.14); color: #B45309; }
+
+.delta-pos { color: #059669; }
+.delta-neg { color: #DC2626; }
+.delta-neutral { color: var(--text-muted); }
+.delta-muted { color: var(--text-muted); }
+
+/* ---- ② 选曲口味 ---- */
+.genre-list { display: flex; flex-direction: column; gap: 6px; }
+
+.genre-row {
+  display: grid;
+  grid-template-columns: 118px 1fr 44px 46px;
+  align-items: center;
+  gap: 8px;
+  animation: row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms);
+}
+
+.genre-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genre-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(139, 155, 180, 0.14);
+  overflow: hidden;
+}
+.genre-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #4A72FF, #9D7BFF);
+  transform-origin: left center;
+  animation: bar-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 45ms + 100ms);
+}
+
+.genre-share {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.genre-delta {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- ③ 定数分布直方图 ---- */
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 96px;
+  padding-top: 12px;
+}
+
+.hist-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.hist-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hist-bar {
+  width: 100%;
+  max-width: 26px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, #9D7BFF, #4A72FF);
+  transform-origin: bottom center;
+  animation: col-grow 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 40ms + 90ms);
+}
+
+@keyframes col-grow {
+  from { transform: scaleY(0); opacity: 0.3; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+.hist-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel, .type-row, .genre-row, .type-bar, .genre-fill, .hist-bar {
+    animation: none;
+  }
+  .result-head { transition: none; }
+}
 </style>

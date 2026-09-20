@@ -1,8 +1,13 @@
 <template>
-  <aside class="left-panel">
+  <!-- 窄屏遮罩：只在 <1180 且抽屉展开时出现 -->
+  <Teleport to="body">
+    <div v-if="drawerOpen" class="left-drawer-backdrop" @click="closeDrawer" />
+  </Teleport>
+
+  <aside class="left-panel" :class="{ 'is-open': drawerOpen }">
     <div class="search-box">
       <span class="search-icon">Q</span>
-      <input v-model="sq" class="search-input" placeholder="搜索歌曲..." @input="onSearch" />
+      <input ref="searchInput" v-model="sq" class="search-input" placeholder="搜索歌曲..." @input="onSearch" />
     </div>
     <div v-if="results.length > 0" class="search-drops">
       <div v-for="s in results" :key="s.songId" class="sr-item" @click="goSong(s.songId)">{{ s.title }}</div>
@@ -58,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useNetwork } from '@vueuse/core';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { useSongStore } from '@/stores/useSongStore';
@@ -73,7 +78,30 @@ const syncStore = useSyncStore();
 const songStore = useSongStore();
 const playLogStore = usePlayLogStore();
 const sq = ref('');
+const searchInput = ref<HTMLInputElement | null>(null);
 const results = ref<{ songId: number; title: string }[]>([]);
+
+// ---- 窄屏抽屉（<1180px 时左侧栏脱离文档流，由头部汉堡按钮切换）----
+const NARROW_QUERY = '(max-width: 1179px)';
+const drawerOpen = ref(false);
+let mql: MediaQueryList | null = null;
+
+function onViewportChange(e: MediaQueryListEvent | MediaQueryList) {
+  // 回到宽屏时强制收起，避免遮罩留在桌面上
+  if (!e.matches) drawerOpen.value = false;
+}
+
+function toggleDrawer() {
+  drawerOpen.value = !drawerOpen.value;
+  if (drawerOpen.value) {
+    // 等抽屉渲染出来再聚焦搜索框
+    requestAnimationFrame(() => searchInput.value?.focus());
+  }
+}
+
+function closeDrawer() {
+  drawerOpen.value = false;
+}
 const syncedCount = ref(0);
 const songCount = ref(0);
 const recentPlays = ref<any[]>([]);
@@ -115,7 +143,18 @@ async function loadSidebarData() {
   });
 }
 
-onMounted(loadSidebarData);
+onMounted(() => {
+  loadSidebarData();
+  mql = window.matchMedia(NARROW_QUERY);
+  onViewportChange(mql);
+  mql.addEventListener('change', onViewportChange);
+  window.addEventListener('toggle-left-drawer', toggleDrawer);
+});
+
+onUnmounted(() => {
+  mql?.removeEventListener('change', onViewportChange);
+  window.removeEventListener('toggle-left-drawer', toggleDrawer);
+});
 
 // Reload after sync completes
 watch(() => syncStore.status, (s) => {
@@ -139,12 +178,12 @@ function onSearch() {
   }, 200);
 }
 
-function goSong(_id: number) { sq.value = ''; results.value = []; }
+function goSong(_id: number) { sq.value = ''; results.value = []; closeDrawer(); }
 </script>
 
 <style scoped>
 .left-panel {
-  width: 260px;
+  width: var(--sidebar-width);
   height: 100%;
   background: transparent;
   overflow-y: auto;
@@ -153,6 +192,51 @@ function goSong(_id: number) { sq.value = ''; results.value = []; }
   flex-direction: column;
   gap: 12px;
   padding: 12px;
+}
+
+/* ===== 窄屏抽屉（<1180px）=====
+   左侧栏脱离文档流、滑出屏幕；主区自动占满整宽。
+   用 transform 而不是 width 做动画 → 不触发主区回流，echarts 不会被反复 resize。 */
+@media (max-width: 1179px) {
+  .left-panel {
+    position: fixed;
+    top: var(--header-height);
+    bottom: 0;
+    left: 0;
+    width: 260px;
+    height: auto;
+    z-index: 45;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid var(--border-color-light);
+    transform: translateX(-100%);
+    transition: transform var(--transition-smooth);
+  }
+  .left-panel.is-open {
+    transform: translateX(0);
+    box-shadow: 0 12px 48px rgba(15, 23, 42, 0.18);
+  }
+}
+
+.left-drawer-backdrop {
+  position: fixed;
+  inset: var(--header-height) 0 0 0;
+  z-index: 44;
+  background: rgba(15, 23, 42, 0.26);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: backdrop-in 0.22s ease both;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .left-panel { transition: none; }
+  .left-drawer-backdrop { animation: none; }
 }
 
 /* ===== Search ===== */

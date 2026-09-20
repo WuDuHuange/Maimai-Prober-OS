@@ -45,7 +45,8 @@
               <div class="cr-state-text">
                 <span class="cr-state-title">还没有生成过报告</span>
                 <span class="cr-state-sub">
-                  教练会基于上面的六维分析写一份完整诊断（整体判断 / 六维解读 / 谱面性质 / 可操作建议 / 阶段目标）。
+                  教练会基于上面的六维分析写一份完整诊断（整体判断 / 六维解读 / 技术类型专项 /
+                  选曲口味与风格倾向 / 谱面性质 / 可操作建议 / 阶段目标）。
                   生成过程会调用查库工具核对数据，结果会存在本地。
                 </span>
               </div>
@@ -59,6 +60,12 @@
                 <span>{{ progressText }}</span>
               </div>
               <article class="cr-md" v-html="renderedContent" />
+
+              <!-- 防幻觉：把正文里引号包裹的曲名与本地曲库比对 -->
+              <div v-if="checkState" class="cr-check" :class="checkState.tone">
+                <span class="cr-check-icon">{{ checkState.tone === 'ok' ? '✓' : '?' }}</span>
+                <span class="cr-check-text">{{ checkState.text }}</span>
+              </div>
             </template>
           </div>
 
@@ -105,6 +112,27 @@ const progressText = computed(() => {
   const tools = [...new Set(store.toolLog)];
   if (tools.length > 0) return `已查询：${tools.join(' · ')}`;
   return '正在读取 B50 快照…';
+});
+
+/**
+ * 曲名核对结果。
+ * ⚠️ 措辞必须写「没能核对到」而不是「编造」—— 简称 / 别名 / 非曲名的引号内容
+ *    都会落进 unverified，是正常的。
+ */
+const checkState = computed(() => {
+  if (store.isGenerating || !store.hasReport) return null;
+  const { verified, unverified } = store.mentionCheck;
+  if (verified.length === 0 && unverified.length === 0) return null;
+
+  if (unverified.length === 0) {
+    return { tone: 'ok', text: `正文引用的 ${verified.length} 个曲名都已在本地曲库中核对到。` };
+  }
+  const shown = unverified.slice(0, 4).join('、');
+  const more = unverified.length > 4 ? ' 等' : '';
+  return {
+    tone: 'warn',
+    text: `有 ${unverified.length} 处引号内容没能在本地曲库核对到（${shown}${more}）。可能是简称或别名，也可能是教练写错了 —— 以游戏内为准。`,
+  };
 });
 
 function onKeydown(e: KeyboardEvent) {
@@ -323,9 +351,55 @@ onBeforeUnmount(() => {
 .cr-fade-enter-active .cr-panel { transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
 .cr-fade-enter-from .cr-panel { transform: translateY(10px) scale(0.985); }
 
+/* ===== 曲名核对（防幻觉）===== */
+.cr-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  animation: cr-check-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cr-check.ok {
+  background: rgba(16, 185, 129, 0.07);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: #047857;
+}
+.cr-check.warn {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  color: #B45309;
+}
+
+.cr-check-icon {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+  margin-top: 1px;
+}
+.cr-check.ok .cr-check-icon { background: var(--color-success); }
+.cr-check.warn .cr-check-icon { background: var(--color-warning); }
+
+.cr-check-text { flex: 1; min-width: 0; }
+
+@keyframes cr-check-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cr-fade-enter-active, .cr-fade-leave-active { transition: none; }
   .cr-fade-enter-active .cr-panel { transition: none; }
   .cr-spinner { animation: none; }
+  .cr-check { animation: none; }
 }
 </style>

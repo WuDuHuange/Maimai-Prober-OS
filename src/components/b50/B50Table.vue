@@ -17,7 +17,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, idx) in list" :key="item.id ?? idx" class="song-row">
+        <tr
+          v-for="(item, idx) in list"
+          :key="item.id ?? idx"
+          class="song-row"
+          @click="emit('select-song', item.songId)"
+        >
           <td class="py-2 px-2 text-xs text-text-muted">{{ idx + 1 }}</td>
           <td class="py-2 px-2 text-sm text-text-primary truncate max-w-[160px]">{{ item.title ?? '未知' }}</td>
           <td class="py-2 px-2 text-xs">
@@ -30,8 +35,8 @@
             <span v-else-if="item.fcStatus === 'fc'" class="badge badge-fc">FC</span>
             <span v-else class="text-text-muted">-</span>
           </td>
-          <td class="py-2 px-2 text-xs text-right" :class="item.ratingContribution >= 14 ? 'text-accent font-bold' : 'text-text-secondary'">
-            {{ item.ratingContribution.toFixed(1) }}
+          <td class="py-2 px-2 text-xs text-right" :class="isTop(item) ? 'text-accent font-bold' : 'text-text-secondary'">
+            {{ item.ratingContribution?.toFixed(0) ?? '-' }}
           </td>
         </tr>
       </tbody>
@@ -43,6 +48,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { useB50Store } from '@/stores/useB50Store';
 import type { DifficultyType } from '@/types/song';
+import type { B50Record } from '@/types/b50';
+
+const emit = defineEmits<{ 'select-song': [songId: number] }>();
 
 const store = useB50Store();
 const list = computed(() => store.b50List);
@@ -52,6 +60,22 @@ onMounted(async () => {
   await store.loadFromDB();
   loading.value = false;
 });
+
+/**
+ * ⚠️ 旧的 `ratingContribution >= 14` 是小数口径时代的残留：
+ * 当时单曲 ra 是 14 上下的小数，现在水鱼返回的是**百量级整数**，
+ * 用 14 当阈值会让整列恒为高亮。改成「高于本份 B50 的平均贡献」——
+ * 自适应、无需硬编码常数。
+ */
+const avgContribution = computed(() => {
+  const l = list.value;
+  if (!l.length) return 0;
+  return l.reduce((s, x) => s + (x.ratingContribution ?? 0), 0) / l.length;
+});
+
+function isTop(item: B50Record): boolean {
+  return (item.ratingContribution ?? 0) >= avgContribution.value;
+}
 
 function diffLabel(d: DifficultyType): string {
   const map: Record<string, string> = {

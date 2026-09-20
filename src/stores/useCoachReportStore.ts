@@ -29,6 +29,8 @@ import { useAnalysisStore } from '@/stores/useAnalysisStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useSongStore } from '@/stores/useSongStore';
+import { useTagStore } from '@/stores/useTagStore';
+import { checkSongMentions, type MentionCheck } from '@/utils/reportCheck';
 
 export const useCoachReportStore = defineStore('coachReport', () => {
   const report = ref<CoachReport | null>(null);
@@ -49,6 +51,29 @@ export const useCoachReportStore = defineStore('coachReport', () => {
   const displayContent = computed(() =>
     isGenerating.value ? draft.value : (report.value?.content ?? '')
   );
+
+  /**
+   * 防幻觉事后核对：把正文里「」《》`` 包裹的曲名与本地曲库比对。
+   * ⚠️ 只在**生成结束后**跑 —— 流式期间每个 chunk 都会变，跑起来会拖垮主线程。
+   * ⚠️ `unverified` 只代表「没能核对上」，可能是简称/别名，UI 文案不要写成「编造」。
+   */
+  const mentionCheck = computed<MentionCheck>(() => {
+    if (isGenerating.value) return { verified: [], unverified: [] };
+    const content = report.value?.content ?? '';
+    if (!content) return { verified: [], unverified: [] };
+
+    const songStore = useSongStore();
+    if (songStore.songs.size === 0) return { verified: [], unverified: [] };
+
+    const analysis = useAnalysisStore();
+    // 白名单：维度名 / 技术类型名 / tag 名 —— 这些出现在引号里是正常的，不是曲名
+    const known = [
+      ...(analysis.result?.dimensions.map(d => d.label) ?? []),
+      ...(analysis.result?.typeSpecialties.map(t => t.name) ?? []),
+      ...(useTagStore().catalog?.tags.map(t => t.name) ?? []),
+    ];
+    return checkSongMentions(content, songStore.songs.values(), known);
+  });
 
   /** 从 IndexedDB 读回上次存下的报告 */
   async function load() {
@@ -175,7 +200,7 @@ export const useCoachReportStore = defineStore('coachReport', () => {
 
   return {
     report, draft, isGenerating, lastError, toolLog, isOpen,
-    hasReport, isStale, displayContent,
+    hasReport, isStale, displayContent, mentionCheck,
     load, persist, generate, clear, open, close,
   };
 });

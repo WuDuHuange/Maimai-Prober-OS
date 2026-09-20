@@ -123,6 +123,12 @@
     </section>
 
     <section class="setting-card">
+      <h2 class="card-h2">数据</h2>
+      <p class="card-desc">本地同步记录与运行日志，用于排查同步异常。</p>
+      <SyncLogPanel class="mt-3" />
+    </section>
+
+    <section class="setting-card">
       <h2 class="card-h2">关于</h2>
       <p class="card-desc">Maimai-Prober-OS v0.1.0 - 纯 Web 端 Maimai DX 底力量化与 AI 策略复盘系统。</p>
     </section>
@@ -131,6 +137,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import SyncLogPanel from '@/components/sync/SyncLogPanel.vue';
 import { encrypt, decrypt } from '@/services/cryptoService';
 import { API_BASE } from '@/types/sync';
 import {

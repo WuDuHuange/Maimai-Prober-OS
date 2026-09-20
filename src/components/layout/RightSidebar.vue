@@ -170,15 +170,47 @@ interface PracticePlanItem {
   songs: Array<{ songId: number; title: string; constant: number | null }>;
 }
 
-const COLLAPSE_KEY = 'right_sidebar_collapsed';
+/**
+ * 折叠状态三态：
+ *  - 'auto'      跟随视口（<1440px 自动收成 38px 轨道）
+ *  - 'expanded'  用户强制展开（可覆盖自动折叠）
+ *  - 'collapsed' 用户强制折叠
+ * 用户一旦手动切换，就不再回到 auto —— 这是「手动优先」的语义。
+ */
+type PanelMode = 'auto' | 'expanded' | 'collapsed';
+
+const MODE_KEY = 'right_sidebar_mode';
+/** 旧键，仅用于迁移老用户的折叠偏好 */
+const LEGACY_KEY = 'right_sidebar_collapsed';
+const NARROW_QUERY = '(max-width: 1439px)';
+
+function readMode(): PanelMode {
+  const saved = localStorage.getItem(MODE_KEY);
+  if (saved === 'auto' || saved === 'expanded' || saved === 'collapsed') return saved;
+  const legacy = localStorage.getItem(LEGACY_KEY);
+  if (legacy === '1') return 'collapsed';
+  if (legacy === '0') return 'expanded';
+  return 'auto';
+}
 
 const playerStore = usePlayerStore();
 const b50Store = useB50Store();
 const analysisStore = useAnalysisStore();
 const playLogStore = usePlayLogStore();
 
-const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === '1');
+const mode = ref<PanelMode>(readMode());
+const viewportNarrow = ref(false);
+const collapsed = computed(() => {
+  if (mode.value === 'expanded') return false;
+  if (mode.value === 'collapsed') return true;
+  return viewportNarrow.value;
+});
 const plans = ref<PracticePlanItem[]>([]);
+
+let mql: MediaQueryList | null = null;
+function onViewportChange(e: MediaQueryListEvent | MediaQueryList) {
+  viewportNarrow.value = e.matches;
+}
 
 const hasData = computed(() => b50Store.b50List.length > 0 || playerStore.currentRating > 0);
 const playerInitial = computed(() => (playerStore.playerName || '?').slice(0, 1).toUpperCase());
@@ -227,8 +259,8 @@ function formatDate(iso: string): string {
 }
 
 function toggleCollapse() {
-  collapsed.value = !collapsed.value;
-  localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0');
+  mode.value = collapsed.value ? 'expanded' : 'collapsed';
+  localStorage.setItem(MODE_KEY, mode.value);
 }
 
 function openSong(songId: number) {
@@ -254,10 +286,14 @@ async function loadPlans() {
 
 onMounted(() => {
   loadPlans();
+  mql = window.matchMedia(NARROW_QUERY);
+  onViewportChange(mql);
+  mql.addEventListener('change', onViewportChange);
   window.addEventListener('practice-plan-updated', loadPlans);
 });
 
 onUnmounted(() => {
+  mql?.removeEventListener('change', onViewportChange);
   window.removeEventListener('practice-plan-updated', loadPlans);
 });
 </script>
