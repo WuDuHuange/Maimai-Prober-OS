@@ -35,8 +35,12 @@ vite.config.ts.timestamp-*
 # 本地工作区数据（记忆 / 临时产物）
 .workbuddy-ai/
 
-# 构建期抓取的社区谱面标注（DXRating）—— 由 `npm run sync:tags` 生成
-# ⚠️ 不入库：它是生成物，且每周定时构建都会刷新（637 KB / 次，进 git 纯属浪费）。
+# 构建期抓取的社区谱面标注（DXRating）—— 由 `npm run sync:tags` 生成。
+# ✅ **入库**（2026-09-21 起，原先在此被 ignore）：它是 CI 的兜底副本。
+#    DXRating 是第三方单点，挂掉时若构建直接失败，连与 tag 无关的 hotfix 都发不出去；
+#    仓库里留一份，`fetch-tags.mjs` 就能退让到「用旧数据」而不是「整个部署挂掉」。
+#    只在手动 `npm run sync:tags` 后提交才会更新，不需要频繁提交（社区标注变动慢）。
+#    原始 637 KB，gzip -9 后约 68 KB（这才是 pack 里的真实增量），代价可接受。
+#    另有一层更鲜的兜底（从已部署站点回抓）见 `scripts/fetch-tags.mjs` 的失败策略。
 # CI 在 build 前必跑 sync:tags；本地 `npm run build` 前也要先跑一次，
 # 否则产物里没有它，线上 tag 功能会静默降级（不报错，只是没有类型专项数据）。
-public/dxr-tags.json

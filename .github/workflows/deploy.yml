@@ -38,8 +38,13 @@ jobs:
         run: npm ci
 
       # 生产环境不能直连 DXRating（其 CORS 按 Origin 白名单放行，github.io 不在其中），
-      # 故构建前抓取社区标注落成同源静态文件。抓取失败会保留仓库里的旧副本，不会让构建挂掉。
+      # 故构建前抓取社区标注落成同源静态文件。
+      # 抓取失败**不会**让构建挂掉：fetch-tags.mjs 会逐层退让
+      # （本地已入库的副本 → 线上已部署的副本），三层都用尽才 exit 1。
+      # TAGS_FALLBACK_URL 按当前仓库拼，fork 时不会误指向上游站点。
       - name: Sync chart tags (DXRating)
+        env:
+          TAGS_FALLBACK_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/dxr-tags.json
         run: npm run sync:tags
 
       - name: Build
