@@ -216,6 +216,32 @@ export interface TypeCombo {
 }
 
 /**
+ * 单 tag 的相对表现（**配置组 + 评价组**全部 tag，样本 ≥ 3 张）。
+ *
+ * 与 `TypeSpecialty` 的分工：
+ * - `TypeSpecialty` 只覆盖**评价组**那 5 类、顺序固定，是「技术类型专项」面板的**全量**视角；
+ * - 本结构覆盖配置组 + 评价组**全部** tag，按 `avgOwnDelta` 降序，
+ *   取两端回答「我打得最好 / 最差的**单项**是什么」。
+ *
+ * ⚠️ 单项必须与 `TypeCombo`（两两组合）**对照**看才有意义：
+ *    单项都不弱、两两叠加却崩 → 瓶颈在「同时处理多个干扰源」，不在任何单项本身。
+ */
+export interface TagPerformance {
+  tagId: number;
+  name: string;
+  /** 所属组：config = 配置组，evaluation = 评价组 */
+  group: 'config' | 'evaluation';
+  /** B50 中命中该 tag 的谱面数 */
+  chartCount: number;
+  avgAchievement: number | null;
+  /** 平均定数 —— 顺带说明「打得差」是不是因为这类谱定数本来就高 */
+  avgConstant: number | null;
+  /** 相对本人 B50 平均达成率的差。正 = 这类谱打得比平均好 */
+  avgOwnDelta: number | null;
+  verdict: RelativeVerdict;
+}
+
+/**
  * 硬度的分解。
  *
  * ⚠️ 为什么不能只看 B50 里的硬谱占比：
@@ -281,6 +307,8 @@ export interface B50AnalysisResult {
   typeSpecialties: TypeSpecialty[];
   /** 打谱偏向 —— tag 两两组合的相对表现（按 avgOwnDelta 降序，强的在前） */
   typeCombos: TypeCombo[];
+  /** 打谱偏向 —— 单 tag 的相对表现（配置组 + 评价组，按 avgOwnDelta 降序，强的在前） */
+  tagPerformance: TagPerformance[];
   /** 曲风口味（官方 genre，按 chartCount 降序；只描述兴趣，不评强弱） */
   genreTastes: GenreTaste[];
   /** 硬度口径分解 */

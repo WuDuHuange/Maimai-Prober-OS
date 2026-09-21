@@ -89,34 +89,70 @@
         <p class="panel-note">{{ typeNote }}</p>
       </section>
 
-      <!-- ② 打谱偏向（tag 两两组合） -->
-      <section v-if="combos.length" class="panel" :style="{ '--d': 1 }">
+      <!-- ② 打谱偏向（单 tag 两端 + tag 两两组合，必须对照看） -->
+      <section v-if="tagExtremes.length || combos.length" class="panel" :style="{ '--d': 1 }">
         <div class="panel-head">
           <span class="panel-title">打谱偏向</span>
-          <span class="panel-hint">tag 组合 · 相对你 B50 平均</span>
+          <span class="panel-hint">相对你 B50 平均</span>
         </div>
-        <div class="combo-list">
-          <div
-            v-for="(c, i) in combos"
-            :key="c.label"
-            class="combo-row"
-            :style="{ '--d': i }"
-            :title="`${c.chartCount} 张 · 平均达成 ${c.avgAchievement?.toFixed(2) ?? '?'}%`"
-          >
-            <span class="combo-label">{{ c.label }}</span>
-            <span class="combo-track">
-              <span
-                v-if="c.avgOwnDelta != null"
-                class="combo-bar"
-                :class="c.avgOwnDelta < 0 ? 'neg' : 'pos'"
-                :style="{ width: comboW(c.avgOwnDelta) }"
-              />
-            </span>
-            <span class="combo-val" :class="deltaClass(c.avgOwnDelta)">{{ fmtDelta(c.avgOwnDelta) }}</span>
-            <span class="combo-count">{{ c.chartCount }} 张</span>
+
+        <!-- 单项 tag：最强 / 最弱各 2 个 -->
+        <div v-if="tagExtremes.length" class="sub-block">
+          <p class="sub-label">单项 tag · 最强 2 / 最弱 2</p>
+          <div class="combo-list">
+            <div
+              v-for="(t, i) in tagExtremes"
+              :key="'tag-' + t.tagId"
+              class="combo-row tag-row"
+              :style="{ '--d': i }"
+              :title="`${t.group === 'config' ? '配置组' : '评价组'} · ${t.chartCount} 张 · ` +
+                `平均达成 ${t.avgAchievement?.toFixed(2) ?? '?'}% · 平均定数 ${t.avgConstant?.toFixed(1) ?? '?'}`"
+            >
+              <span class="combo-label">{{ t.name }}</span>
+              <span class="combo-track">
+                <span
+                  v-if="t.avgOwnDelta != null"
+                  class="combo-bar"
+                  :class="t.avgOwnDelta < 0 ? 'neg' : 'pos'"
+                  :style="{ width: comboW(t.avgOwnDelta) }"
+                />
+              </span>
+              <span class="combo-val" :class="deltaClass(t.avgOwnDelta)">{{ fmtDelta(t.avgOwnDelta) }}</span>
+              <span class="combo-count">{{ t.chartCount }} 张</span>
+            </div>
           </div>
         </div>
-        <p class="panel-note">只看样本 ≥ 3 张的组合 · 正 = 比你的 B50 平均打得好</p>
+
+        <!-- tag 两两组合：两端各 5 个 -->
+        <div v-if="combos.length" class="sub-block">
+          <p class="sub-label">tag 组合 · 最强 5 / 最弱 5</p>
+          <div class="combo-list">
+            <div
+              v-for="(c, i) in combos"
+              :key="c.label"
+              class="combo-row"
+              :style="{ '--d': i }"
+              :title="`${c.chartCount} 张 · 平均达成 ${c.avgAchievement?.toFixed(2) ?? '?'}%`"
+            >
+              <span class="combo-label">{{ c.label }}</span>
+              <span class="combo-track">
+                <span
+                  v-if="c.avgOwnDelta != null"
+                  class="combo-bar"
+                  :class="c.avgOwnDelta < 0 ? 'neg' : 'pos'"
+                  :style="{ width: comboW(c.avgOwnDelta) }"
+                />
+              </span>
+              <span class="combo-val" :class="deltaClass(c.avgOwnDelta)">{{ fmtDelta(c.avgOwnDelta) }}</span>
+              <span class="combo-count">{{ c.chartCount }} 张</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="panel-note">
+          只看样本 ≥ 3 张 · 正 = 比你的 B50 平均打得好。
+          <b>单项与组合要对照看</b>：单项都不弱、两两叠加却崩，瓶颈就在「同时处理多个干扰源」，不在任何单项本身。
+        </p>
       </section>
 
       <!-- ③ 选曲口味（官方 genre）—— 只反映兴趣，不评强弱 -->
@@ -348,7 +384,20 @@ const genres = computed(() =>
 );
 
 /**
- * 打谱偏向 —— 只取组合的**两端**（最强 / 最弱）。
+ * 打谱偏向 —— 单 tag 的**两端**（最强 2 / 最弱 2）。
+ *
+ * 与组合成对展示：单项说明「哪类谱本身不顺」，组合说明「哪些干扰源叠加后才崩」。
+ * 只看组合会把组合效应误读成单项短板。样本门槛（≥3 张）由算法侧保证。
+ */
+const TAG_SHOWN = 2;
+const tagExtremes = computed(() => {
+  const all = result.value?.tagPerformance ?? [];
+  if (all.length <= TAG_SHOWN * 2) return all;
+  return [...all.slice(0, TAG_SHOWN), ...all.slice(-TAG_SHOWN)];
+});
+
+/**
+ * 打谱偏向 —— 组合的**两端**（最强 / 最弱）。
  * 中间态没有信息量，全列出来只会把面板撑长。
  * 样本门槛（≥3 张）由算法侧保证。
  */
@@ -856,7 +905,18 @@ function diffLabel(d: DifficultyType) {
 }
 .genre-count { font-size: 10px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
 
-/* ---- ③ 打谱偏向（tag 两两组合） ---- */
+/* ---- ③ 打谱偏向（单 tag 两端 + tag 两两组合） ---- */
+.sub-block { margin-bottom: 10px; }
+.sub-block:last-of-type { margin-bottom: 0; }
+
+.sub-label {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
 .combo-list { display: flex; flex-direction: column; gap: 6px; }
 
 .combo-row {
@@ -952,7 +1012,8 @@ function diffLabel(d: DifficultyType) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel, .type-row, .genre-row, .type-bar, .genre-fill, .hist-bar {
+  .panel, .type-row, .genre-row, .type-bar, .genre-fill, .hist-bar,
+  .combo-row, .combo-bar, .hist-col {
     animation: none;
   }
   .result-head { transition: none; }

@@ -49,7 +49,7 @@ The same-skill-tier peer aggregate (「peer_stats」) is **currently unavailable
 1. Analyze the player's recent low-achievement plays (below 97% on Master/Re:Master) to identify weaknesses.
 2. Diagnose which technical genres are causing problems based on Fast/Late counts and miss patterns.
 3. When [L2] contains 「技术类型专项」 (star / keyboard / stamina / power / dense charts), name the player's weak chart type explicitly and explain what it implies.
-4. When [L2] contains 「打谱偏向」 (tag-pair combinations), use it to surface **combination effects** — e.g. a type that looks fine on its own but collapses when paired with another tag.
+4. When [L2] contains 「打谱偏向」, use **both** halves of it: the **single-tag** extremes (strongest 2 / weakest 2) and the **tag-pair combinations**. Report the single tags first, then the combinations, then contrast the two — if no single tag looks weak but pairs collapse, the bottleneck is juggling multiple interference sources at once, and the combination effect must **not** be attributed to any single tag.
 5. 「选曲口味」 (official genre) describes **taste only** — which genres the player gravitates toward. It says nothing about skill: never call a genre "weak", and never derive practice advice from it.
 6. Recommend 3-5 practice songs within 0.2-0.5 constant lower than the player's struggle range.
 7. Provide actionable, specific advice on how to approach the recommended practice songs.

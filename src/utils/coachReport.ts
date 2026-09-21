@@ -82,10 +82,14 @@ export function buildReportRequest(r: B50AnalysisResult): string {
     ? `最常打的曲风：${topGenres.map(g => `${g.genre}（${g.chartCount} 张）`).join('、')}`
     : '';
 
-  // 打谱偏向：给 AI 点出两端的组合，省得它自己在长清单里找
+  // 打谱偏向：把单项两端与组合两端都点出来，省得 AI 自己在长清单里找
+  const perfStrong = r.tagPerformance.slice(0, 2);
+  const perfWeak = r.tagPerformance.slice(-2).reverse();
   const comboStrong = r.typeCombos.filter(c => c.verdict === 'strong').slice(0, 3);
   const comboWeak = [...r.typeCombos].reverse().filter(c => c.verdict === 'weak').slice(0, 3);
   const comboHint = [
+    perfStrong.length ? `最强单项：${perfStrong.map(t => `${t.name}(${t.avgOwnDelta?.toFixed(2)})`).join('、')}` : '',
+    perfWeak.length ? `最弱单项：${perfWeak.map(t => `${t.name}(${t.avgOwnDelta?.toFixed(2)})`).join('、')}` : '',
     comboStrong.length ? `打得好的组合：${comboStrong.map(c => c.label).join('、')}` : '',
     comboWeak.length ? `打得差的组合：${comboWeak.map(c => c.label).join('、')}` : '',
   ].filter(Boolean).join('；');
@@ -120,10 +124,12 @@ export function buildReportRequest(r: B50AnalysisResult): string {
     typeHint ? `（${typeHint}）` : '',
     ``,
     `## 四、打谱偏向分析`,
-    `快照「打谱偏向」一节把 tag 做了**两两组合**统计（配置类 tag × 评价类 tag），` +
-      `反映的是**组合效应** —— 单看「星星谱」也许还行，但「星星谱 + 交互」可能明显更差。`,
-    `请指出：哪些组合我打得明显好、哪些明显差，并解释这种组合效应背后的技术原因` +
-      `（例如两类配置叠加时读谱 / 手速 / 体力哪个先成为瓶颈）。只谈打得**好或差**的组合，不要罗列全部组合。`,
+    `快照「打谱偏向」一节有两半：**单项 tag 的最强 2 / 最弱 2**，以及 **tag 两两组合**。`,
+    `先逐条讲单项（这个 tag 意味着什么样的谱面结构、我在上面为什么顺 / 不顺），` +
+      `再讲组合（哪些组合明显好、哪些明显差），最后**把两者对照**：` +
+      `如果单项都不弱、两两叠加却崩，瓶颈就在「同时处理多个干扰源」——` +
+      `读谱与分拍的优先级会乱，而**不是**某个单项本身不行。` +
+      `只谈打得**好或差**的组合，不要罗列全部组合。`,
     comboHint ? `（${comboHint}）` : '',
     ``,
     `## 五、选曲口味与风格倾向`,

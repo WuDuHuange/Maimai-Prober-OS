@@ -40,6 +40,7 @@ import type {
   GenreTaste,
   HardnessBreakdown,
   RelativeVerdict,
+  TagPerformance,
   TypeChartRef,
   TypeCombo,
   TypeSpecialty,
@@ -211,6 +212,7 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
 
   const structure = buildStructure(charts, ownAvg);
   const typeSpecialties = buildTypeSpecialties(charts, tagCatalog);
+  const tagPerformance = buildTagPerformance(charts, tagCatalog);
   const typeCombos = buildTypeCombos(charts, tagCatalog);
   const genreTastes = buildGenreTastes(charts, songMap);
   const hardness = buildHardness(charts, allPlays, songMap, tagCatalog, statsPayload, waterBaseline, ownAvg);
@@ -232,6 +234,7 @@ export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
     highlights,
     typeSpecialties,
     typeCombos,
+    tagPerformance,
     genreTastes,
     hardness,
     charts,
@@ -551,6 +554,55 @@ function buildGenreTastes(
 
 /** 组合分析的最小样本量 —— 组合的样本天然比单 tag 小，门槛不够会被偶然波动主导 */
 const MIN_CHARTS_FOR_COMBO = 3;
+
+/**
+ * 单 tag 的相对表现 —— 覆盖**配置组 + 评价组**全部 tag。
+ *
+ * 存在的理由：`typeSpecialties` 只回答「评价组那 5 类怎么样」，
+ * 而玩家真正会问的是「我打得最差的那个 tag 到底是哪个」——
+ * 答案经常在**配置组**里（错位 / 交互 / 爆发 / 绝赞段 …）。
+ *
+ * ⚠️ 必须与 `buildTypeCombos` **成对使用**：单项说明「哪一类谱本身不顺」，
+ *    组合说明「哪些干扰源叠加后才崩」。只看组合会把组合效应误读成单项短板。
+ */
+function buildTagPerformance(
+  charts: ChartAnalysis[],
+  tagCatalog: TagCatalog | null
+): TagPerformance[] {
+  if (!tagCatalog) return [];
+
+  const out: TagPerformance[] = [];
+  for (const tag of tagCatalog.tags) {
+    const group: TagPerformance['group'] | null =
+      tag.groupId === TAG_GROUP_IDS.CONFIG ? 'config'
+        : tag.groupId === TAG_GROUP_IDS.EVALUATION ? 'evaluation'
+          : null;
+    // 难度组（水 / 诈称谱）不参与 —— 它们已由「谱面性质」与「硬度」单独分析
+    if (!group) continue;
+
+    const matched = charts.filter(c => c.tags.some(t => t.id === tag.id));
+    if (matched.length < MIN_CHARTS_FOR_VERDICT) continue;
+
+    const consts = matched
+      .map(c => c.constant)
+      .filter((v): v is number => typeof v === 'number' && v > 0);
+    const avgOwnDelta = round(mean(matched.map(c => c.ownDelta)), 3);
+
+    out.push({
+      tagId: tag.id,
+      name: tag.name,
+      group,
+      chartCount: matched.length,
+      avgAchievement: round(mean(matched.map(c => c.achievements)), 3),
+      avgConstant: consts.length ? round(mean(consts), 2) : null,
+      avgOwnDelta,
+      verdict: verdictOf(avgOwnDelta, matched.length),
+    });
+  }
+
+  // 强的在前（UI / 快照都取两端）
+  return out.sort((a, b) => (b.avgOwnDelta ?? 0) - (a.avgOwnDelta ?? 0));
+}
 
 /**
  * 打谱偏向 —— tag **两两组合**的相对表现。

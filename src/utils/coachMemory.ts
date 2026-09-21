@@ -45,6 +45,9 @@ const SNAPSHOT_TAGS_PER_CHART = 6;
 /** 快照里「打谱偏向」最多展示几个强项 / 弱项组合 */
 const COMBO_SHOWN = 5;
 
+/** 快照 / UI 里「单项 tag」两端各展示几个 */
+const TAG_SHOWN = 2;
+
 export interface PlayerProfileFacts {
   nickname: string;
   rating: number;
@@ -209,27 +212,41 @@ export function renderAnalysisSnapshot(r: B50AnalysisResult): string {
     }
   }
 
-  // ── 打谱偏向（tag 两两组合）──
-  if (r.typeCombos.length > 0) {
-    L.push(`\n### 打谱偏向（tag 两两组合的相对表现）`);
-    L.push(`- 口径：同时命中两个 tag 的 B50 谱面（样本 ≥ 3 张）相对本人 B50 平均达成率的差。`);
-    const strong = r.typeCombos.filter(c => c.verdict === 'strong').slice(0, COMBO_SHOWN);
-    const weak = [...r.typeCombos].reverse().filter(c => c.verdict === 'weak').slice(0, COMBO_SHOWN);
-    if (strong.length) {
+  // ── 打谱偏向（单 tag 两端 + tag 两两组合）—— 两者必须对照看 ──
+  if (r.tagPerformance.length > 0 || r.typeCombos.length > 0) {
+    L.push(`\n### 打谱偏向（相对本人 B50 平均达成率的差，正 = 比平均打得好）`);
+    L.push(`- 口径：B50 内命中该 tag / 该组合的谱面（样本 ≥ 3 张）的达成率，减去本人 B50 平均达成率。`);
+
+    const perf = r.tagPerformance;
+    if (perf.length > 0) {
+      const fmtPerf = (t: typeof perf[number]) =>
+        `${t.name}（${fmtDelta(t.avgOwnDelta)}，${t.chartCount} 张，` +
+        `${t.group === 'config' ? '配置组' : '评价组'}，平均定数 ${t.avgConstant?.toFixed(1) ?? '?'}）`;
+      const strong = perf.slice(0, TAG_SHOWN);
+      const weak = perf.slice(-TAG_SHOWN).reverse();
+      L.push(`- **单项 tag 最强**：${strong.map(fmtPerf).join('；')}`);
+      L.push(`- **单项 tag 最弱**：${weak.map(fmtPerf).join('；')}`);
+    }
+
+    const strongCombo = r.typeCombos.filter(c => c.verdict === 'strong').slice(0, COMBO_SHOWN);
+    const weakCombo = [...r.typeCombos].reverse().filter(c => c.verdict === 'weak').slice(0, COMBO_SHOWN);
+    if (strongCombo.length) {
       L.push(`- 打得好的组合：`);
-      L.push(...strong.map(c =>
+      L.push(...strongCombo.map(c =>
         `  · ${c.label}：${c.chartCount} 张，相对自身 ${fmtDelta(c.avgOwnDelta)}`
       ));
     }
-    if (weak.length) {
+    if (weakCombo.length) {
       L.push(`- 打得差的组合：`);
-      L.push(...weak.map(c =>
+      L.push(...weakCombo.map(c =>
         `  · ${c.label}：${c.chartCount} 张，相对自身 ${fmtDelta(c.avgOwnDelta)}`
       ));
     }
-    if (!strong.length && !weak.length) {
+    if (!strongCombo.length && !weakCombo.length && r.typeCombos.length > 0) {
       L.push(`- 共 ${r.typeCombos.length} 个组合达标，但没有一个偏离自身平均超过 ±0.3 —— 表现相当均匀。`);
     }
+    L.push(`- ⚠️ **单项与组合要对照着看**：若单项都不弱、两两叠加却明显偏低，` +
+      `说明瓶颈在「同时处理多个干扰源」，**不要**把它归因成某个单项的短板。`);
   }
 
   // ── 硬度口径分解 ──
@@ -316,8 +333,10 @@ export function buildAnalysisRequest(r: B50AnalysisResult): string {
     `2. **六维解读**：**六个维度必须逐一独立成条**，每维一条，格式为「维度名 分数 —— 解读」。${focus}`,
     `3. **技术类型专项**：快照「技术类型专项」一节列了星星谱/键盘谱/体力谱/底力谱/高物量五类的表现。` +
       `逐类讲清我的强弱，并说明短板类型**具体卡在哪**（是读谱、手速、体力还是爆发）。${typeFocus}`,
-    `4. **打谱偏向**：结合「打谱偏向」一节（tag 两两组合），指出哪些组合我打得明显好、哪些明显差，` +
-      `并尝试解释组合效应（例如「星星谱」单看不弱，但配上「交互」就掉下来，这说明什么）。`,
+    `4. **打谱偏向**：结合「打谱偏向」一节，**先讲单项 tag**（最强 2 个 / 最弱 2 个，分别说明这意味着什么），` +
+      `**再讲组合**（哪些组合明显好、哪些明显差），最后**把单项与组合对照**：` +
+      `若单项都不弱、两两叠加却崩，瓶颈在「同时处理多个干扰源」，` +
+      `**不要**把组合效应归因成某个单项的短板。`,
     `5. **选曲口味**：结合「选曲口味」一节，只谈我的**曲风兴趣分布**（偏好集中在哪里）。` +
       `⚠️ 口味与水平无关 —— **不要**评价哪种曲风打得好坏，也不要据此给练习建议。`,
     `6. **谱面性质**：结合「水」/「诈称谱」社区标注与拟合定数，谈谈我的 B50 是不是靠偏水的谱堆起来的。` +
