@@ -236,13 +236,22 @@
 
       <!-- 数据新鲜度 -->
       <div class="sources">
+        <!--
+          ⚠️ 必须显式写出**当前实际口径**（规格 §7.4）。
+          光说「同段基准 ×」只告诉了用户「不做什么」，没告诉他「做的是什么」——
+          实际既非同段也非全服，而是「本人 B50 内部对比」：
+          全服 avg 含大量低水平玩家（15.0 谱仅 82.8%），不能当跨玩家基准。
+        -->
+        <span class="src caliber" title="所有强弱判断都是「这张谱的达成率 − 你自己 B50 的平均达成率」，不做任何跨玩家比较">
+          口径：本人 B50 内部对比
+        </span>
         <span class="src" :class="{ off: !result.tagAvailable }">
           社区标注 {{ result.tagAvailable ? '✓' : '×' }}
         </span>
         <span class="src" :class="{ off: result.baselineCoverage.matched === 0 }">
           拟合定数基准 {{ result.baselineCoverage.matched }}/{{ result.baselineCoverage.total }}
         </span>
-        <span class="src off" title="同段聚合数据源当前不可用，本分析不做任何跨玩家强弱对比">
+        <span class="src off" title="同段（同水平玩家）聚合数据源当前不可用 —— 本分析不做任何跨玩家强弱对比">
           同段基准 ×
         </span>
       </div>
@@ -703,6 +712,12 @@ function diffLabel(d: DifficultyType) {
   border: 1px solid rgba(16,185,129,0.2);
 }
 .src.off { background: rgba(148,163,184,0.10); color: #64748B; border-color: rgba(148,163,184,0.22); }
+/* 口径徽章 —— 与「数据源是否可用」区分开：它说的是**判断依据**，不是来源健康度 */
+.src.caliber {
+  background: rgba(74,114,255,0.10); color: #3B5BDB;
+  border-color: rgba(74,114,255,0.22);
+  font-weight: 600;
+}
 
 .highlights { display: flex; flex-direction: column; gap: 10px; }
 .hl-group {
