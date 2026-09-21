@@ -94,7 +94,6 @@ import { useProberSync } from '@/composables/useProberSync';
 import { useAICoach } from '@/composables/useAICoach';
 import { useSyncStore } from '@/stores/useSyncStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
-import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
@@ -124,7 +123,9 @@ function onNavSong(e: Event) {
 }
 
 onMounted(async () => {
-  useSettingsStore().checkSettings();
+  // 注：原先这里调 useSettingsStore().checkSettings() —— 该 store 的两个输出
+  //     (hasToken / hasGeminiKey) 全仓零消费，且 prober_token_enc 只读不写。
+  //     已连同 store 一起清理（见 .workbuddy-ai/trash/dead-code-2026-09-21/）。
   playerStore.restoreFromStorage();
 
   window.addEventListener('nav-to-settings', onNavSettings);
