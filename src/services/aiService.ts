@@ -388,6 +388,11 @@ export async function agentChat(
   let conversation = userMessage;
   /** 允许的工具轮数；用尽后转强制作答 */
   const maxToolRounds = 4;
+  /**
+   * 单次工具结果回灌给模型的字符上限。
+   * 见下方用法处的注释 —— 3000 会把 `get_b50_analysis` 的 50 张谱明细腰斩成坏 JSON。
+   */
+  const MAX_TOOL_RESULT = 16000;
   /** 用过的工具调用指纹 —— 同一个工具 + 同一份参数再调一次结果不会变 */
   const seenCalls = new Set<string>();
   let toolRounds = 0;
@@ -461,7 +466,19 @@ export async function agentChat(
       toolRounds++;
 
       const result = await executeToolCall(parsed);
-      const resultBlock = `\n\nRESULT:\n${result.slice(0, 3000)}\n===END===\n\n基于以上真实数据回答用户问题。`;
+      // ⚠️ 结果长度上限。原先写死 3000 —— 但 `get_b50_analysis` 返回全部 50 张谱的
+      //    明细时远超此值，会被**从中间腰斩**，模型拿到的是坏 JSON
+      //    （实测尾部停在 `"constant":14` 这种半截字段）。
+      //    现在提到 16000，并且**截断时显式告知模型**，避免它去解析残缺 JSON。
+      const truncated = result.length > MAX_TOOL_RESULT;
+      const payload = truncated ? result.slice(0, MAX_TOOL_RESULT) : result;
+      const resultBlock =
+        `\n\nRESULT:\n${payload}` +
+        (truncated
+          ? '\n…[结果超长已截断，此处不是完整 JSON，请勿解析；' +
+            '改用更精确的参数（如更小的 topN / maxResults）重新调用]'
+          : '') +
+        '\n===END===\n\n基于以上真实数据回答用户问题。';
       // 只把工具指令块（END 之前的部分）回灌，丢掉模型多写的解释
       conversation += '\n\n' + accumulated.split('===END===')[0] + '===END===' + resultBlock;
       callbacks.onChunk(`\n> 🔧 已执行 ${parsed.name}，正在分析数据...\n\n`);

@@ -33,8 +33,15 @@ export const CONTEXT_BUDGET = {
    * 所以这个预算必须**留足**，否则截断会把最有用的部分切掉。
    * 后来又补了「技术类型专项」「选曲口味」「硬度口径」三节 —— 这三节是
    * 「教练分析详情度不够」的根因（此前 AI 手上根本没有类型/曲风数据）。
+   *
+   * ⚠️ 2026-09-20：实测发现预算早已不够 —— 真实体量（50 张 B50、含 tag 与
+   * 水度）下 `renderAnalysisSnapshot` 输出约 **4800 字符**，而预算还停在 4200。
+   * 截断策略是「头 55% + 尾 45%」，于是**中段被静默吃掉**：
+   * 「相对自己 B50 平均偏低的谱面」整节消失、「谱面性质」的偏硬部分被切。
+   * AI 拿到的快照「看起来完整」却缺节 —— 它会转而用工具去补，这正是
+   * 「AI 反复查询」的诱因之一。故提到 5600（≈4800 + 16% 余量）。
    */
-  snapshot: 4200,
+  snapshot: 5600,
   summary: 400,
   history: 2600,
 } as const;
@@ -110,7 +117,16 @@ export function buildLayeredContext(input: LayeredContextInput): string {
   }
 
   if (input.snapshot.trim()) {
-    segments.push(truncate(`## [L2] B50 分析快照（本地算法产出，可直接引用）\n${input.snapshot}`, CONTEXT_BUDGET.snapshot));
+    const block = `## [L2] B50 分析快照（本地算法产出，可直接引用）\n${input.snapshot}`;
+    // 截断会静默丢掉中段（历史上丢过「相对自己 B50 平均偏低的谱面」整节）。
+    // 这里留一条告警：正常情况不该触发，一旦触发就说明预算又不够了。
+    if (block.length > CONTEXT_BUDGET.snapshot) {
+      console.warn(
+        `[coachMemory] L2 快照超出预算（${block.length} > ${CONTEXT_BUDGET.snapshot}），` +
+        `中段内容将被截断丢失。请提高 CONTEXT_BUDGET.snapshot 或精简 renderAnalysisSnapshot。`
+      );
+    }
+    segments.push(truncate(block, CONTEXT_BUDGET.snapshot));
   }
 
   if (input.summary.trim()) {

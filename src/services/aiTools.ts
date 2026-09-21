@@ -30,7 +30,9 @@ export const AI_TOOLS: MCPTool[] = [
   },
   {
     name: 'get_b50_data',
-    description: '获取玩家 Best 50 数据。isNew=true=B15新版本, isNew=false=B35旧版本',
+    description:
+      '获取玩家 Best 50 数据。isNew=true=B15新版本, isNew=false=B35旧版本。' +
+      '每条含 songId（可用于 get_chart_tags）',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,7 +43,7 @@ export const AI_TOOLS: MCPTool[] = [
   },
   {
     name: 'get_recent_plays',
-    description: '获取最近游玩记录（曲名/难度/达成率/DX分/FC状态）',
+    description: '获取最近游玩记录（songId/曲名/难度/达成率/DX分/FC状态）',
     inputSchema: {
       type: 'object',
       properties: {
@@ -52,7 +54,7 @@ export const AI_TOOLS: MCPTool[] = [
   },
   {
     name: 'get_recent_fails',
-    description: '获取 Master/Re:Master 达成率<97% 的翻车记录',
+    description: '获取 Master/Re:Master 达成率<97% 的翻车记录（含 songId）',
     inputSchema: {
       type: 'object',
       properties: {
@@ -62,7 +64,7 @@ export const AI_TOOLS: MCPTool[] = [
   },
   {
     name: 'search_songs',
-    description: '在曲库搜索歌曲，返回标题/类型/各难度定数',
+    description: '在曲库搜索歌曲，返回 songId/标题/类型/曲风/各难度定数。用 songId 可继续调 get_chart_tags 看该谱社区标注',
     inputSchema: {
       type: 'object',
       properties: {
@@ -75,15 +77,22 @@ export const AI_TOOLS: MCPTool[] = [
   {
     name: 'get_b50_analysis',
     description:
-      '获取玩家已生成的 B50 能力分析（六维评分 + 结构 + 亮点谱面）。' +
+      '获取玩家已生成的 B50 能力分析（六维评分 + 结构 + **全量谱面明细**）。' +
+      '`charts` 字段返回全部 50 张 B50 谱面，每条含 songId / 定数 / 达成率 / ' +
+      'ownDelta（相对本人 B50 平均的偏差）/ waterIndex（水度）/ tags（社区标注）。' +
+      '因此「某张谱是什么成分 / 好不好打 / 有没有诈称」这类问题，优先调本工具，' +
+      '绝大多数情况无需再调 get_chart_tags。' +
+      '⚠️ 本工具出参较大，**每次提问最多调一次**，不要重复调用。' +
       '若返回 not_generated，说明玩家还没点过「生成 B50 能力分析」，此时应提示玩家先点击该按钮。',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'get_chart_tags',
     description:
-      '查询某谱面的社区标注（DXRating 众包 tag，如「水」「诈称谱」「交互」「纵连」）。' +
-      'songId 为数字曲目 ID，difficulty 取 basic/advanced/expert/master/remaster。',
+      '查询**不在 B50 快照里**的某张谱面的社区标注（DXRating 众包 tag，如「水」「诈称谱」「交互」「纵连」）。' +
+      'songId 为数字曲目 ID —— 从 search_songs / get_b50_data / get_recent_plays 的返回里取。' +
+      '⚠️ 若该谱已在 B50 里，get_b50_analysis 的 charts[].tags 已含标注，不要重复调本工具。' +
+      'difficulty 取 basic/advanced/expert/master/remaster。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -159,6 +168,7 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
       const topN = (args.topN as number) || 15;
       const filtered = b50.b50List.filter(b => b.isNew === isNew).slice(0, topN);
       return JSON.stringify(filtered.map(b => ({
+        songId: b.songId,
         title: b.title ?? `#${b.songId}`, type: b.type, difficulty: b.difficulty,
         constant: b.constant, achievements: Number(b.achievements.toFixed(2)),
         dxScore: b.dxScore, fcStatus: b.fcStatus,
@@ -174,6 +184,7 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
       const songs = await db.songs.bulkGet([...new Set(filtered.map(r => r.songId))]);
       const sm = new Map(songs.filter(Boolean).map(s => [s!.songId, s!]));
       return JSON.stringify(filtered.map(r => ({
+        songId: r.songId,
         title: sm.get(r.songId)?.title ?? `#${r.songId}`, type: sm.get(r.songId)?.type,
         difficulty: r.difficulty, achievements: Number(r.achievements.toFixed(2)),
         dxScore: r.dxScore, dxRating: r.dxRating, fcStatus: r.fcStatus, rate: r.rate,
@@ -187,6 +198,7 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
       const songs = await db.songs.bulkGet([...new Set(fails.map(r => r.songId))]);
       const sm = new Map(songs.filter(Boolean).map(s => [s!.songId, s!]));
       return JSON.stringify(fails.map(r => ({
+        songId: r.songId,
         title: sm.get(r.songId)?.title ?? `#${r.songId}`, difficulty: r.difficulty,
         constant: r.constant, achievements: Number(r.achievements.toFixed(2)),
         fcStatus: r.fcStatus, rate: r.rate,
@@ -201,7 +213,7 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
       if (q) all = all.filter(s => s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q));
       if (tp === 'DX' || tp === 'SD') all = all.filter(s => s.type === tp);
       return JSON.stringify(all.slice(0, max).map(s => ({
-        title: s.title, artist: s.artist, type: s.type, bpm: s.bpm,
+        songId: s.songId, title: s.title, artist: s.artist, type: s.type, genre: s.genre, bpm: s.bpm,
         constants: { Basic: s.basicConst, Advanced: s.advancedConst, Expert: s.expertConst, Master: s.masterConst, ReM: s.remasterConst },
       })));
     }
@@ -218,10 +230,18 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
         });
       }
       const brief = (c: (typeof r.charts)[number]) => ({
+        songId: c.songId,
         title: c.title, type: c.type, difficulty: c.difficulty, constant: c.constant,
-        achievements: Number(c.achievements.toFixed(2)), ownDelta: c.ownDelta,
-        waterIndex: c.waterIndex, waterZ: c.waterZ, tags: c.tagNames,
+        achievements: Number(c.achievements.toFixed(2)),
+        ownDelta: Number(c.ownDelta.toFixed(2)),
+        waterIndex: c.waterIndex,
+        waterZ: c.waterZ,
+        tags: c.tagNames,
       });
+      // ⚠️ 出参体积是有约束的：回灌给模型的结果有字符上限（见 aiService.MAX_TOOL_RESULT）。
+      //    原先这里还带一份 highlights{water,underrated,weak,strong} —— 那四组**全是
+      //    charts 的子集**，等于把同样的数据发两遍，把 50 张谱的明细顶到上限之外。
+      //    去掉后模型仍可从 charts 自行筛，信息量不变。
       return JSON.stringify({
         status: 'ok',
         generatedAt: r.generatedAt,
@@ -231,19 +251,14 @@ export async function executeToolCall(call: ToolCall): Promise<string> {
         tagAvailable: r.tagAvailable,
         peerStatsAvailable: r.peerStatsAvailable,
         note:
-          'peerStatsAvailable=false → 同段（同水平玩家）聚合基准不可用，' +
-          '禁止任何「高于/低于同段平均」类断言。ownDelta 是玩家 B50 内部对比，不是跨玩家比较。',
+          'peerStatsAvailable=false → 禁止任何「高于/低于同段平均」类断言。' +
+          'ownDelta = 该谱达成率 − 本人 B50 平均，是 B50 **内部**对比。' +
+          'charts 是全部 50 张 B50 明细（含 songId / 社区标注 tags / 水度）。',
         dimensions: r.dimensions.map(d => ({
           id: d.id, label: d.label, score: d.score, rawLabel: d.rawLabel, insufficient: !!d.insufficient,
         })),
         structure: r.structure,
         headline: r.headline,
-        highlights: {
-          water: r.highlights.waterCharts.slice(0, 6).map(brief),
-          underrated: r.highlights.underratedCharts.slice(0, 6).map(brief),
-          weak: r.highlights.weakCharts.slice(0, 8).map(brief),
-          strong: r.highlights.strongCharts.slice(0, 5).map(brief),
-        },
         charts: r.charts.map(brief),
       });
     }
