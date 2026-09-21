@@ -3,6 +3,7 @@
  * 执行函数访问 Pinia Store + Dexie 数据库
  */
 import { db } from '@/services/db';
+import type { ToolCall } from '@/utils/toolProtocol';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useSongStore } from '@/stores/useSongStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
@@ -122,14 +123,16 @@ export function buildToolPrompt(): string {
   lines.push('2. 收到 RESULT ... ===END=== 后才能开始分析。没有收到 RESULT 严禁输出任何结论');
   lines.push('3. 严禁编造任何数据。工具返回为空就说"暂无数据"');
   lines.push('4. 每次只调用一个工具。等待 RESULT 后再决定是否需要更多');
+  lines.push('5. TOOL 与 ARGS 各占一行，**不要用 ``` 代码块包裹**，ARGS 后面也不要跟别的文字');
+  lines.push('6. 以上格式说明只给你自己看 —— **不要在思考过程或回复正文里复述它**');
+  lines.push('7. 不要用同一个参数重复调用同一个工具：结果不会变。数据够了就直接作答');
   return lines.join('\n');
 }
 
 // ---- 执行层 ----
-export interface ToolCall {
-  name: string;
-  args: Record<string, unknown>;
-}
+// 协议解析（parseToolCall / stripToolProtocol / hasToolMarker）是纯函数，
+// 放在 utils/toolProtocol.ts —— 这里只负责「注册表 + 执行」，那才是有副作用的部分。
+export type { ToolCall };
 
 export async function executeToolCall(call: ToolCall): Promise<string> {
   const { name, args } = call;

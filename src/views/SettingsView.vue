@@ -28,17 +28,42 @@
       <h2 class="card-h2">AI 服务配置</h2>
       <p class="card-desc">选择一个 AI 供应商，填入 API Key，即可使用 AI 教练分析战绩。</p>
 
-      <!-- 供应商选择 -->
+      <!--
+        当前生效状态条 —— 持久可见（每次进设置页都从 localStorage 重读），
+        解决「不知道选没选上、之前选了哪个」。保存成功会立刻刷新它。
+      -->
+      <div class="ai-status" :class="activeProviderKey ? 'is-live' : 'is-empty'">
+        <span class="status-dot"></span>
+        <template v-if="activeProviderKey">
+          <span class="status-label">当前生效</span>
+          <span class="status-provider">{{ providerLabel(activeProviderKey) }}</span>
+          <span class="status-model">{{ activeModelLabel || '默认模型' }}</span>
+          <span v-if="testedProviders.has(activeProviderKey)" class="status-tag">已测试通过</span>
+          <span v-else class="status-tag muted">未测试</span>
+        </template>
+        <template v-else>
+          <span class="status-label">尚未启用任何 AI 服务</span>
+          <span class="status-hint">在下方填入 API Key 并点「保存」即可启用</span>
+        </template>
+      </div>
+
+      <!-- 供应商选择：✓ = 已配置，实心点 = 当前生效 -->
       <div class="provider-tabs mt-3">
         <button
           v-for="p in providerDefs"
           :key="p.key"
           class="provider-tab"
-          :class="{ active: activeProvider === p.key }"
-          :title="p.desc"
+          :class="{
+            active: activeProvider === p.key,
+            configured: isConfigured(p.key),
+            live: activeProviderKey === p.key,
+          }"
+          :title="p.desc + (activeProviderKey === p.key ? '（当前生效）' : isConfigured(p.key) ? '（已配置）' : '（未配置）')"
           @click="selectProvider(p.key)"
         >
-          {{ p.label }}
+          <span>{{ p.label }}</span>
+          <span v-if="isConfigured(p.key)" class="tab-check" title="已配置">✓</span>
+          <span v-if="activeProviderKey === p.key" class="tab-live" title="当前生效"></span>
         </button>
       </div>
 
@@ -62,15 +87,19 @@
           </p>
         </div>
 
-        <div class="flex gap-2 mb-2">
+        <div class="flex gap-2 mb-2 items-center">
           <input
             v-model="aiKeyInput"
             type="password"
             class="setting-input flex-1"
             :placeholder="activeProvider === 'custom' ? 'API Key（自建端点可留空）' : `输入 ${activeProvider} API Key`"
           />
-          <button class="btn primary" @click="handleSaveAI" :disabled="!canSave">保存</button>
+          <button class="btn primary ai-save-btn" @click="handleSaveAI" :disabled="!canSave">
+            {{ saveFlash ? '已保存 ✓' : '保存' }}
+          </button>
+          <span v-if="dirty && !saveFlash" class="dirty-badge" title="当前输入与已保存的配置不同">未保存</span>
         </div>
+        <p class="text-xs text-text-muted mb-2">保存会同时把该供应商设为「当前生效」。</p>
 
         <!-- 模型选择 -->
         <div class="model-select-row">
@@ -114,12 +143,6 @@
           </span>
         </div>
       </div>
-
-      <!-- 已配置供应商列表 -->
-      <p class="text-xs text-text-muted mt-2">
-        已配置: {{ configuredProviders.map(p => p.label).join(', ') || '无' }}
-        <span v-if="activeProvider" class="ml-1">｜ 当前: {{ providerDefs.find(p => p.key === activeProvider)?.label }}</span>
-      </p>
     </section>
 
     <section class="setting-card">
@@ -136,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import SyncLogPanel from '@/components/sync/SyncLogPanel.vue';
 import { encrypt, decrypt } from '@/services/cryptoService';
 import { API_BASE } from '@/types/sync';
@@ -165,6 +188,7 @@ const importToken = ref('');
 const importTokenStatus = ref<{ text: string; color: string } | null>(null);
 
 // ---- AI 配置 ----
+/** 正在编辑（tab 高亮）的供应商 —— 注意这与「当前生效」不是一回事 */
 const activeProvider = ref<AIProvider>('gemini');
 const aiKeyInput = ref('');
 const aiModelInput = ref('');
@@ -172,6 +196,76 @@ const aiModelInput = ref('');
 const customBaseUrlInput = ref('');
 const aiTestResult = ref<{ ok: boolean; message: string } | null>(null);
 const aiTestLoading = ref(false);
+
+/** 真正生效的供应商（localStorage['ai_active']）。与「正在编辑的 tab」显式区分开 */
+const activeProviderKey = ref<AIProvider | null>(null);
+/** 生效配置的模型名，用于状态条展示 */
+const activeModelLabel = ref('');
+/** 本会话内测试通过过的供应商 */
+const testedProviders = ref<Set<AIProvider>>(new Set());
+/** 保存成功后的短暂反馈（按钮变「已保存 ✓」） */
+const saveFlash = ref(false);
+let saveFlashTimer: number | undefined;
+/** 进入某 tab 时的已保存快照 —— 用于判断「有未保存修改」 */
+const savedSnapshot = ref({ key: '', model: '', baseUrl: '' });
+
+/** 当前输入与已保存配置不一致 */
+const dirty = computed(() =>
+  aiKeyInput.value.trim() !== savedSnapshot.value.key ||
+  aiModelInput.value.trim() !== savedSnapshot.value.model ||
+  (activeProvider.value === 'custom'
+    && customBaseUrlInput.value.trim() !== savedSnapshot.value.baseUrl)
+);
+
+function providerLabel(key: AIProvider): string {
+  return providerDefs.find(p => p.key === key)?.label ?? key;
+}
+
+/** 该供应商是否已配置完整（custom 还要求填了 Base URL） */
+function isConfigured(key: AIProvider): boolean {
+  if (!localStorage.getItem(STORAGE_KEYS[key])) return false;
+  if (key === 'custom') return !!getCustomBaseUrl();
+  return true;
+}
+
+/** 从 localStorage 重读「当前生效」状态（保存 / 移除后都要调） */
+function refreshActiveStatus() {
+  const key = localStorage.getItem('ai_active') as AIProvider | null;
+  activeProviderKey.value = key;
+  if (!key) { activeModelLabel.value = ''; return; }
+  const encModel = localStorage.getItem(MODEL_KEYS[key]);
+  activeModelLabel.value = (encModel ? decrypt(encModel) : '') || '默认模型';
+}
+
+/** custom 允许留空 API Key（自建网关常常不鉴权） */
+const canSave = computed(() =>
+  activeProvider.value === 'custom'
+    ? !!customBaseUrlInput.value.trim()
+    : !!aiKeyInput.value.trim()
+);
+
+function selectProvider(p: AIProvider) {
+  // 切 tab 会覆盖输入框 —— 有未保存修改时先问一句，别静默丢
+  if (p !== activeProvider.value && dirty.value) {
+    const ok = window.confirm(
+      `「${providerLabel(activeProvider.value)}」的修改还没保存，切换后会丢失。\n\n确定切换吗？`
+    );
+    if (!ok) return;
+  }
+  activeProvider.value = p;
+  aiTestResult.value = null;
+  // 恢复已保存的配置（key map 统一来自 aiService，避免各处硬编码）
+  const encKey = localStorage.getItem(STORAGE_KEYS[p]);
+  aiKeyInput.value = encKey ? decrypt(encKey) : '';
+  const encModel = localStorage.getItem(MODEL_KEYS[p]);
+  aiModelInput.value = encModel ? decrypt(encModel) : '';
+  customBaseUrlInput.value = getCustomBaseUrl();
+  savedSnapshot.value = {
+    key: aiKeyInput.value.trim(),
+    model: aiModelInput.value.trim(),
+    baseUrl: customBaseUrlInput.value.trim(),
+  };
+}
 
 // 远程模型
 const remoteModels = ref<RemoteModelEntry[]>([]);
@@ -197,31 +291,11 @@ const providerDefs: { key: AIProvider; label: string; desc: string }[] = [
   { key: 'custom', label: '自定义', desc: '任意 OpenAI 兼容端点（One-API / Ollama / vLLM / 中转站）' },
 ];
 
-/** 已保存过 API Key 的供应商（custom 还要求填了 Base URL） */
-const configuredProviders = computed(() =>
-  providerDefs.filter(p => {
-    if (!localStorage.getItem(STORAGE_KEYS[p.key])) return false;
-    if (p.key === 'custom') return !!getCustomBaseUrl();
-    return true;
-  })
-);
-
-/** custom 允许留空 API Key（自建网关常常不鉴权） */
-const canSave = computed(() =>
-  activeProvider.value === 'custom'
-    ? !!customBaseUrlInput.value.trim()
-    : !!aiKeyInput.value.trim()
-);
-
-function selectProvider(p: AIProvider) {
-  activeProvider.value = p;
-  aiTestResult.value = null;
-  // 恢复已保存的配置（key map 统一来自 aiService，避免各处硬编码）
-  const encKey = localStorage.getItem(STORAGE_KEYS[p]);
-  aiKeyInput.value = encKey ? decrypt(encKey) : '';
-  const encModel = localStorage.getItem(MODEL_KEYS[p]);
-  aiModelInput.value = encModel ? decrypt(encModel) : '';
-  customBaseUrlInput.value = getCustomBaseUrl();
+/** 保存成功的短暂视觉反馈（按钮变「已保存 ✓」） */
+function flashSaved() {
+  saveFlash.value = true;
+  if (saveFlashTimer) window.clearTimeout(saveFlashTimer);
+  saveFlashTimer = window.setTimeout(() => { saveFlash.value = false; }, 1800);
 }
 
 async function handleSaveAI() {
@@ -236,8 +310,20 @@ async function handleSaveAI() {
   const model = aiModelInput.value.trim()
     || MODEL_PRESETS.find(m => m.provider === activeProvider.value)?.id
     || '';
+  // ⚠️ saveAIConfig 内部会写 localStorage['ai_active'] —— 保存即设为生效
   saveAIConfig(activeProvider.value, aiKeyInput.value.trim(), model);
-  aiTestResult.value = { ok: true, message: '配置已保存 ✓' };
+  aiModelInput.value = model;
+  savedSnapshot.value = {
+    key: aiKeyInput.value.trim(),
+    model: model.trim(),
+    baseUrl: customBaseUrlInput.value.trim(),
+  };
+  refreshActiveStatus();
+  flashSaved();
+  aiTestResult.value = {
+    ok: true,
+    message: `已保存，并设为当前生效（${providerLabel(activeProvider.value)}）`,
+  };
 }
 
 async function handleTestAI() {
@@ -257,6 +343,9 @@ async function handleTestAI() {
     || '';
   const result = await testAIConnection(activeProvider.value, aiKeyInput.value.trim(), model);
   aiTestResult.value = result;
+  if (result.ok) {
+    testedProviders.value = new Set([...testedProviders.value, activeProvider.value]);
+  }
   aiTestLoading.value = false;
 }
 
@@ -266,7 +355,16 @@ function handleRemoveAI() {
   aiKeyInput.value = '';
   aiModelInput.value = '';
   customBaseUrlInput.value = '';
-  aiTestResult.value = { ok: true, message: '配置已移除' };
+  savedSnapshot.value = { key: '', model: '', baseUrl: '' };
+  refreshActiveStatus();
+  // removeAIConfig 可能已经静默把生效项切到别的供应商 —— 必须告诉用户切到哪了
+  const nowLive = activeProviderKey.value;
+  aiTestResult.value = {
+    ok: true,
+    message: nowLive
+      ? `已移除；当前生效已自动切换到 ${providerLabel(nowLive)}`
+      : '已移除；当前没有可用的 AI 服务',
+  };
 }
 
 async function handleRefreshModels() {
@@ -308,9 +406,11 @@ onMounted(() => {
     importToken.value = decrypt(it);
     importTokenStatus.value = { text: '已保存', color: 'text-success' };
   }
-  // 恢复当前激活的 AI 供应商
+  // 恢复当前激活的 AI 供应商（tab 高亮 + 输入框回填）
   const active = (localStorage.getItem('ai_active') as AIProvider | null) || 'gemini';
   selectProvider(active);
+  // 状态条独立于 tab —— 它显示的是「真正生效」的那个，每次进页面重读
+  refreshActiveStatus();
 
   // 加载缓存的远程模型列表
   const cached = getCachedRemoteModels();
@@ -323,6 +423,10 @@ onMounted(() => {
   loadModelPresets().then(list => {
     dynamicPresets.value = list;
   });
+});
+
+onBeforeUnmount(() => {
+  if (saveFlashTimer) window.clearTimeout(saveFlashTimer);
 });
 
 async function doLogin() {
@@ -434,9 +538,48 @@ function saveImportToken() {
   box-shadow: 0 4px 14px rgba(74, 114, 255, 0.3);
 }
 
+/* ===== AI 当前生效状态条 ===== */
+.ai-status {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 12px; padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-body);
+  font-size: 12px;
+}
+.ai-status.is-live {
+  border-color: rgba(34, 168, 106, 0.35);
+  background: rgba(34, 168, 106, 0.06);
+}
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--text-muted);
+}
+.ai-status.is-live .status-dot {
+  background: #22A86A;
+  box-shadow: 0 0 0 3px rgba(34, 168, 106, 0.16);
+}
+.status-label { color: var(--text-muted); font-weight: 600; }
+.status-provider { color: var(--text-primary); font-weight: 700; }
+.status-model {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: var(--text-secondary);
+  padding: 1px 6px; border-radius: 4px;
+  background: rgba(74, 114, 255, 0.08);
+}
+.status-tag {
+  margin-left: auto;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 9999px;
+  background: rgba(34, 168, 106, 0.12); color: #22A86A;
+}
+.status-tag.muted { background: rgba(139, 155, 180, 0.14); color: var(--text-muted); }
+.status-hint { color: var(--text-muted); }
+
 /* ===== AI 供应商选择标签 ===== */
 .provider-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .provider-tab {
+  display: inline-flex; align-items: center; gap: 5px;
   padding: 7px 16px; border-radius: 9999px;
   border: 1px solid var(--border-color);
   background: var(--bg-body);
@@ -448,6 +591,26 @@ function saveImportToken() {
 .provider-tab.active {
   background: var(--color-primary); border-color: var(--color-primary);
   color: white; box-shadow: 0 2px 10px rgba(74,114,255,0.2);
+}
+/* 已配置：✓ 角标 */
+.tab-check {
+  font-size: 10px; font-weight: 900; line-height: 1;
+  color: #22A86A;
+}
+.provider-tab.active .tab-check { color: #B7F5D2; }
+/* 当前生效：实心圆点（与「正在编辑」的 active 高亮是两回事） */
+.tab-live {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: #22A86A;
+}
+.provider-tab.active .tab-live { background: #B7F5D2; }
+
+/* 未保存提示 */
+.dirty-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 3px 8px; border-radius: 9999px;
+  background: rgba(240, 160, 32, 0.14); color: #C77B0A;
+  white-space: nowrap;
 }
 
 .ai-config-panel { background: var(--bg-body); border-radius: var(--radius-md); padding: 14px; }

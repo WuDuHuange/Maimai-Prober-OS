@@ -341,18 +341,37 @@ export async function streamAIChat(
 
 // ---- Prompt-Based Agent (统一架构，不依赖 API 原生 Function Calling) ----
 import { buildToolPrompt, executeToolCall } from './aiTools';
+import { parseToolCall, stripToolProtocol, hasToolMarker, type ToolCall } from '@/utils/toolProtocol';
 
 export interface AgentCallbacks {
   onChunk: (text: string) => void;
   onThinking?: (text: string) => void;
+  /** 丢弃本轮已推给 UI 的思考链（该轮被判定为「工具调度轮」时调用） */
+  onThinkingReset?: () => void;
   onToolCall?: (toolName: string) => void;
   signal?: AbortSignal;
+}
+
+/** 单次工具调用的指纹，用于识别模型原地打转 */
+function callSignature(name: string, args: Record<string, unknown>): string {
+  let a: string;
+  try { a = JSON.stringify(args); } catch { a = String(args); }
+  return `${name}|${a}`;
 }
 
 /**
  * Prompt-Based Agent 循环
  * 原理：在 System Prompt 中注入工具清单 + TOOL/ARGS/===END=== 文本协议
  * 流式拦截 AI 响应 → 检测 TOOL: → 执行 Dexie → 注入 RESULT: → 继续
+ *
+ * ⚠️ 三个刻意的设计（都是踩过坑之后加的）：
+ *  1. **思考链按轮分流**。推理模型在「还没拿到数据」时会先输出一大段
+ *     「我该调哪个工具」的调度废话，那不是用户想看的思考。所以：
+ *     调度轮的思考**不推给 UI**；只有真正作答那轮的思考才展示。
+ *  2. **循环必须有界，且不靠抛异常收尾**。抛出去会被上层捕获并回退到
+ *     无工具的普通流式，等于把带协议的整段上下文再喂一遍，更容易胡说。
+ *     所以改成「重复调用 / 轮次用尽 → 转入强制作答」。
+ *  3. **协议原文绝不外泄**。解析失败时走 stripToolProtocol 兜底。
  */
 export async function agentChat(
   systemPrompt: string,
@@ -367,54 +386,111 @@ export async function agentChat(
 
   // 对话历史（纯文本累积）
   let conversation = userMessage;
-  const maxTurns = 4;
+  /** 允许的工具轮数；用尽后转强制作答 */
+  const maxToolRounds = 4;
+  /** 用过的工具调用指纹 —— 同一个工具 + 同一份参数再调一次结果不会变 */
+  const seenCalls = new Set<string>();
+  let toolRounds = 0;
+  /** true = 不再接受工具调用，直接要答案 */
+  let forceAnswer = false;
 
-  for (let turn = 0; turn < maxTurns; turn++) {
-    console.log('[Agent] 第', turn + 1, '轮, 上下文长度:', conversation.length);
+  for (let turn = 0; turn < maxToolRounds + 2; turn++) {
+    // 「调度轮」= 对话里还没有任何工具结果。这一轮模型只是在决定调什么，
+    // 推理模型能在这上面啰嗦几千字，且对用户毫无价值 → 思考不展示。
+    const isSchedulingTurn = !forceAnswer && !conversation.includes('RESULT:');
+    console.log('[Agent] 第', turn + 1, '轮, 调度轮:', isSchedulingTurn, ', 上下文长度:', conversation.length);
 
-    // 调用对应供应商的流式接口，但我们需要拦截 TOOL 指令
-    // 流式累积文本，检测 TOOL: 触发点
+    const prompt = forceAnswer
+      ? conversation +
+        '\n\n⚠️ 工具调用预算已用尽。禁止再输出任何 TOOL 指令，' +
+        '请立刻基于上面已经拿到的真实数据直接作答。'
+      : conversation;
+
     let accumulated = '';
-    let toolDetected = false;
-    let toolName = '';
-    let toolArgs: Record<string, unknown> = {};
+    let turnThinking = '';
+    /** 本轮解析出的工具调用（null = 无） */
+    let parsedCall: ToolCall | null = null;
+    /**
+     * 读取本轮解析结果。
+     * ⚠️ 必须包成函数：`parsedCall` 只在下面的闭包里赋值，TS 的控制流分析
+     * 会认为它恒为 null，直接在循环体里读会被窄化成 never。
+     */
+    const readParsedCall = (): ToolCall | null => parsedCall;
 
+    // 调度轮的思考先攒着不推；万一本轮其实是最终作答轮，收尾时补发
+    const thinkingSink = (t: string) => {
+      turnThinking += t;
+      if (!isSchedulingTurn) callbacks.onThinking?.(t);
+    };
+
+    // 只负责累积文本，解析交给 parseToolCall（宽容模式，见 aiTools.ts）
     const toolInterceptor = (chunk: string) => {
       accumulated += chunk;
-
-      // 检测 TOOL: 指令（在累积文本中查找）
-      const toolMatch = accumulated.match(/TOOL:\s*(\S+)\s*\nARGS:\s*(\{[\s\S]*?\})\s*\n===END===/);
-      if (toolMatch && !toolDetected) {
-        toolDetected = true;
-        toolName = toolMatch[1].trim();
-        try { toolArgs = JSON.parse(toolMatch[2]); } catch { toolArgs = {}; }
-        console.log('[Agent] 检测到 TOOL:', toolName, toolArgs);
-        callbacks.onToolCall?.(toolName);
+      if (!parsedCall && !forceAnswer && hasToolMarker(accumulated)) {
+        const call = parseToolCall(accumulated);
+        if (call) {
+          parsedCall = call;
+          console.log('[Agent] 解析到 TOOL:', call.name, call.args);
+          callbacks.onToolCall?.(call.name);
+        }
       }
     };
 
-    // 调用流式接口（所有供应商统一走这个拦截器）
-    try {
-      await streamAIChatRaw(fullSystemPrompt, conversation, toolInterceptor, callbacks.onThinking, callbacks.signal, config);
-    } catch (err: any) {
-      throw err;
-    }
+    await streamAIChatRaw(
+      fullSystemPrompt, prompt, toolInterceptor, thinkingSink, callbacks.signal, config
+    );
 
-    // 如果检测到工具调用 → 执行 → 注入结果 → 下一轮
-    if (toolDetected && toolName) {
-      const result = await executeToolCall({ name: toolName, args: toolArgs });
+    const parsed = readParsedCall();
+
+    // ---- 分支 A：本轮是工具调用轮 ----
+    if (parsed && !forceAnswer) {
+      // 拿到数据之后还要再调工具（少见）→ 这一轮的思考也是调度性质，撤掉
+      if (!isSchedulingTurn) callbacks.onThinkingReset?.();
+
+      const sig = callSignature(parsed.name, parsed.args);
+      if (seenCalls.has(sig)) {
+        console.warn('[Agent] 重复调用同一工具，转入强制作答:', sig);
+        callbacks.onChunk('\n> ⚠️ 检测到重复调用同一个工具，已跳过并直接作答。\n\n');
+        forceAnswer = true;
+        conversation +=
+          `\n\n注意：你刚刚已经用完全相同的参数调用过 ${parsed.name}，结果不会变化。` +
+          '禁止再调用任何工具，请立刻基于已获得的数据作答。';
+        continue;
+      }
+      seenCalls.add(sig);
+      toolRounds++;
+
+      const result = await executeToolCall(parsed);
       const resultBlock = `\n\nRESULT:\n${result.slice(0, 3000)}\n===END===\n\n基于以上真实数据回答用户问题。`;
+      // 只把工具指令块（END 之前的部分）回灌，丢掉模型多写的解释
       conversation += '\n\n' + accumulated.split('===END===')[0] + '===END===' + resultBlock;
-      callbacks.onChunk(`\n> 🔧 已执行 ${toolName}，正在分析数据...\n\n`);
+      callbacks.onChunk(`\n> 🔧 已执行 ${parsed.name}，正在分析数据...\n\n`);
+
+      if (toolRounds >= maxToolRounds) {
+        console.warn('[Agent] 工具轮数达上限，下一轮强制作答');
+        forceAnswer = true;
+      }
       continue;
     }
 
-    // 没有工具调用 → 最终回复
-    callbacks.onChunk(accumulated);
+    // ---- 分支 B：最终回答 ----
+    // 调度轮的思考被压着没发 —— 说明本轮就是最终轮（模型直接作答），补发
+    if (isSchedulingTurn && turnThinking) callbacks.onThinking?.(turnThinking);
+
+    let finalText = accumulated;
+    // 兜底：无论解析成功与否，内部协议都不该出现在用户眼前
+    if (hasToolMarker(finalText) || finalText.includes('===END===')) {
+      const cleaned = stripToolProtocol(finalText);
+      finalText = cleaned.length >= 20
+        ? cleaned
+        : '⚠️ 模型返回了无法解析的工具调用格式，已忽略。请重试一次，或到设置里换一个模型。';
+    }
+    callbacks.onChunk(finalText);
     return;
   }
 
-  throw new Error('工具调用超过最大轮次');
+  // 循环自然结束（理论上不该发生 —— forceAnswer 那轮会走分支 B 返回）
+  callbacks.onChunk('⚠️ 工具调用次数超出上限，请重新提问。');
 }
 
 /** 流式调用（不含工具拦截逻辑，只负责发送请求和回调） */

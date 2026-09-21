@@ -109,6 +109,8 @@ export function useAICoach() {
       await agentChat(SYSTEM_PROMPT, userMessage, {
         onChunk: (chunk) => chatStore.appendToLastMessage(chunk),
         onThinking: (t) => chatStore.appendThinking(t),
+        // 「工具调度轮」的思考是「我该调哪个工具」的废话，撤掉，只留真正作答那轮的
+        onThinkingReset: () => chatStore.clearThinking(),
         onToolCall: (toolName) => {
           chatStore.appendToLastMessage(`\n\n> 🔧 *正在查询: ${toolName}...*\n\n`);
         },

@@ -33,6 +33,20 @@ export const useAIChatStore = defineStore('aiChat', () => {
     }
   }
 
+  /**
+   * 清空最新一条助手消息的思考链。
+   *
+   * 用于 Agent 的「工具调度轮」：那一轮模型只是在决定调哪个工具，
+   * 它顺带产出的思考对用户没有价值（推理模型能在这上面啰嗦几千字），
+   * 已经推给 UI 的必须撤掉，否则会和真正作答那轮的思考拼成一个巨型 blob。
+   */
+  function clearThinking() {
+    const last = messages.value[messages.value.length - 1];
+    if (last && last.role === 'assistant') {
+      last.thinking = '';
+    }
+  }
+
   function clearMessages() {
     messages.value = [];
     summaryMemory.value = '';
@@ -59,7 +73,7 @@ export const useAIChatStore = defineStore('aiChat', () => {
 
   return {
     messages, isStreaming, summaryMemory, analysisSnapshot,
-    addMessage, appendToLastMessage, appendThinking, clearMessages,
+    addMessage, appendToLastMessage, appendThinking, clearThinking, clearMessages,
     setSummaryMemory, setAnalysisSnapshot, getRecentHistory,
   };
 });
