@@ -314,6 +314,82 @@ async function callGeminiStream(
   return readGeminiStream(resp, onChunk, onThinking);
 }
 
+/**
+ * 解析 OpenAI 兼容的 SSE 流（**openai / deepseek / custom 三家共用**）。
+ *
+ * ⚠️ 与 `readGeminiStream` 同理：**只此一份**。原先这条解析在
+ * `callOpenAICompatibleStream` 和 `streamAIChatRaw` 里各写了一遍 ——
+ * Gemini 的 `alt=sse` 事故正是这种双份结构漂移出来的，这里不能重蹈。
+ *
+ * ⚠️ 拿到 0 字符时**抛出可读错误**：否则 `agentChat` 会把空串当成最终回答推给 UI，
+ *    表现为「请求成功但一个字都没有」，与 Gemini 那个 bug 的症状完全一样。
+ */
+async function readOpenAIStream(
+  resp: Response,
+  onChunk: (text: string) => void,
+  onThinking?: (text: string) => void
+): Promise<string> {
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  let finishReason = '';
+  let streamError = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // 用 `data:` + trim 而不是 `data: `，两种写法都吃得下
+      if (!trimmed.startsWith('data:')) continue;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') continue;
+
+      let json: any;
+      try {
+        json = JSON.parse(data);
+      } catch {
+        continue;
+      }
+
+      // 有些网关把错误塞进流里（HTTP 200 但 data: {"error": {...}}）
+      if (json?.error?.message) {
+        streamError = String(json.error.message);
+        continue;
+      }
+
+      const choice = json?.choices?.[0];
+      if (choice?.finish_reason) finishReason = String(choice.finish_reason);
+
+      const delta = choice?.delta;
+      if (!delta) continue;
+      // DeepSeek R1 的推理链
+      if (delta.reasoning_content && onThinking) onThinking(delta.reasoning_content);
+      // 正文
+      if (delta.content) {
+        full += delta.content;
+        onChunk(delta.content);
+      }
+    }
+  }
+
+  if (!full) {
+    if (streamError) throw new Error(`模型返回错误：${streamError}`);
+    if (finishReason && finishReason !== 'stop') {
+      throw new Error(`模型未返回正文（finish_reason: ${finishReason}）`);
+    }
+    throw new Error(
+      '模型返回了空响应。请确认该模型名对当前 Key 可用；若持续如此，请到设置里换一个模型。'
+    );
+  }
+  return full;
+}
+
 async function callOpenAICompatibleStream(
   config: AIConfig,
   endpoint: string,
@@ -349,41 +425,7 @@ async function callOpenAICompatibleStream(
     throw new Error(`API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
   }
 
-  const reader = resp.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let full = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
-      try {
-        const json = JSON.parse(data);
-        const delta = json.choices?.[0]?.delta;
-        if (delta) {
-          // DeepSeek R1 的推理链
-          if (delta.reasoning_content && onThinking) {
-            onThinking(delta.reasoning_content);
-          }
-          // 正文
-          if (delta.content) {
-            full += delta.content;
-            onChunk(delta.content);
-          }
-        }
-      } catch { /* skip */ }
-    }
-  }
-  return full;
+  return readOpenAIStream(resp, onChunk, onThinking);
 }
 
 /** 流式 AI 对话 */
@@ -617,42 +659,12 @@ async function streamAIChatRaw(
     case 'custom': {
       const endpoint = resolveChatEndpoint(config);
       if (!endpoint) throw new Error('自定义供应商缺少 Base URL，请到设置中填写');
-      const resp = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
-        body: JSON.stringify({
-          model: config.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
-          stream: true,
-        }),
-        signal,
-      });
-      if (!resp.ok) throw new Error(`${config.provider} ${resp.status}`);
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
-          try {
-            const json = JSON.parse(data);
-            const delta = json.choices?.[0]?.delta;
-            if (delta?.content) onChunk(delta.content);
-            if (delta?.reasoning_content && onThinking) onThinking(delta.reasoning_content);
-          } catch { /* skip */ }
-        }
-      }
+      // 直接复用同一条实现（原先这里把 fetch + 解析又抄了一遍）：
+      // 错误信息更具体（401 / 429 会给出可读原因，而不是干巴巴的「deepseek 401」），
+      // 且与 callOpenAICompatibleStream 不会再漂移。
+      await callOpenAICompatibleStream(
+        config, endpoint, systemPrompt, userMessage, onChunk, onThinking, signal
+      );
       return;
     }
     case 'claude': {
