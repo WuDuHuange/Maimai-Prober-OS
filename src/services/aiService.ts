@@ -167,6 +167,117 @@ export function removeAIConfig(provider: AIProvider) {
 
 // ---- API 调用 ----
 
+/**
+ * Gemini 流式端点。
+ *
+ * ⚠️ **`alt=sse` 不能少**（2026-09-22 修）。Google 规定是否走 SSE **完全由这个 query 参数决定**：
+ *   - 带 `alt=sse` → `Content-Type: text/event-stream`，每行一条 `data: {...}`
+ *   - 不带       → 「流式 JSON」，即 **JSON 数组流**，**没有 `data:` 前缀**
+ *   原先两处 URL 都漏了它，而解析器只认 `data:` → 一行都匹配不到 → **解析出 0 字符**。
+ *   症状极具迷惑性：**连接测试通过，但对话没有任何输出**。
+ */
+function geminiStreamUrl(model: string, apiKey: string): string {
+  return (
+    'https://generativelanguage.googleapis.com/v1beta/models/' +
+    `${model}:streamGenerateContent?alt=sse&key=${apiKey}`
+  );
+}
+
+/** Gemini GenerateContentResponse 里我们关心的字段 */
+interface GeminiResponseShape {
+  promptFeedback?: { blockReason?: string };
+  candidates?: {
+    finishReason?: string;
+    content?: { parts?: { text?: string; thought?: boolean }[] };
+  }[];
+}
+
+/**
+ * 解析 Gemini 流式响应。**两处调用共用这一份**（原先各写一遍，已经漂移过）。
+ *
+ * - SSE（正常情况）按行解析 `data:`；
+ * - 非 SSE（网关/代理把 `alt` 参数剥掉时）整段按 JSON 数组兜底解析 ——
+ *   宁可牺牲流式体验，也不要静默无输出；
+ * - **思考与正文严格分流**：`part.thought` 的文本只进 onThinking，绝不混进正文；
+ * - 拿到 0 字符时**抛出可读错误**，而不是返回空串让 UI 一片空白。
+ */
+async function readGeminiStream(
+  resp: Response,
+  onChunk: (text: string) => void,
+  onThinking?: (text: string) => void
+): Promise<string> {
+  const isSse = (resp.headers.get('content-type') ?? '').includes('text/event-stream');
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let raw = '';
+  let full = '';
+  let blockReason = '';
+  let finishReason = '';
+
+  const consume = (json: GeminiResponseShape) => {
+    if (json?.promptFeedback?.blockReason) blockReason = json.promptFeedback.blockReason;
+    const cand = json?.candidates?.[0];
+    if (cand?.finishReason) finishReason = cand.finishReason;
+    for (const part of cand?.content?.parts ?? []) {
+      if (!part?.text) continue;
+      if (part.thought) {
+        onThinking?.(part.text);
+      } else {
+        full += part.text;
+        onChunk(part.text);
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+
+    if (!isSse) {
+      raw += text;
+      continue;
+    }
+
+    buffer += text;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        consume(JSON.parse(payload) as GeminiResponseShape);
+      } catch {
+        /* 半行 / 非 JSON，跳过 */
+      }
+    }
+  }
+
+  // 非 SSE 兜底：整段是一个 JSON 数组（或单个对象）
+  if (!isSse && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as GeminiResponseShape | GeminiResponseShape[];
+      for (const item of Array.isArray(parsed) ? parsed : [parsed]) consume(item);
+    } catch {
+      /* 解析不了 → 交给下面的报错 */
+    }
+  }
+
+  if (!full) {
+    if (blockReason) throw new Error(`Gemini 拒绝了本次请求（blockReason: ${blockReason}）`);
+    if (finishReason && finishReason !== 'STOP') {
+      throw new Error(`Gemini 未返回正文（finishReason: ${finishReason}）`);
+    }
+    throw new Error(
+      'Gemini 返回了空响应。请确认该模型名对当前 Key 可用；若持续如此，请到设置里换一个模型。'
+    );
+  }
+  return full;
+}
+
 async function callGeminiStream(
   config: AIConfig,
   systemPrompt: string,
@@ -176,8 +287,6 @@ async function callGeminiStream(
   signal?: AbortSignal
 ): Promise<string> {
   // Gemini API: 只用 contents，不重复 systemInstruction（避免某些模型忽略正文）
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?key=${config.apiKey}`;
-
   // 单条消息：系统提示词 + 上下文数据 + 用户问题，清晰分隔
   const combinedText = [
     systemPrompt,
@@ -185,7 +294,7 @@ async function callGeminiStream(
     userMessage,
   ].join('\n\n');
 
-  const resp = await fetch(url, {
+  const resp = await fetch(geminiStreamUrl(config.model, config.apiKey), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -202,38 +311,7 @@ async function callGeminiStream(
     throw new Error(`Gemini API 错误 ${resp.status}: ${errText.slice(0, 150)}`);
   }
 
-  const reader = resp.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let full = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          const json = JSON.parse(line.slice(6));
-          const parts = json.candidates?.[0]?.content?.parts;
-          if (parts) {
-            for (const part of parts) {
-              if (part.thought && part.text && onThinking) {
-                onThinking(part.text);
-              } else if (!part.thought && part.text) {
-                full += part.text;
-                onChunk(part.text);
-              }
-            }
-          }
-        } catch { /* skip malformed */ }
-      }
-    }
-  }
-  return full;
+  return readGeminiStream(resp, onChunk, onThinking);
 }
 
 async function callOpenAICompatibleStream(
@@ -521,8 +599,7 @@ async function streamAIChatRaw(
 ): Promise<void> {
   switch (config.provider) {
     case 'gemini': {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:streamGenerateContent?key=${config.apiKey}`;
-      const resp = await fetch(url, {
+      const resp = await fetch(geminiStreamUrl(config.model, config.apiKey), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: systemPrompt + '\n\n---\n\n' + userMessage }] }],
@@ -530,27 +607,9 @@ async function streamAIChatRaw(
         signal,
       });
       if (!resp.ok) throw new Error(`Gemini ${resp.status}`);
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const json = JSON.parse(line.slice(6));
-              for (const part of (json.candidates?.[0]?.content?.parts || [])) {
-                if (part.text) onChunk(part.text);
-                if (part.thought && onThinking) onThinking(part.text || '');
-              }
-            } catch { /* skip */ }
-          }
-        }
-      }
+      // 与 callGeminiStream 共用同一份解析。原先这里各写了一遍，且 thought 判定顺序写反：
+      // 先无条件 `onChunk(part.text)` 再判 `part.thought` → 思考内容会被当成正文推给 UI。
+      await readGeminiStream(resp, onChunk, onThinking);
       return;
     }
     case 'deepseek':
@@ -674,6 +733,10 @@ export async function testAIConnection(provider: AIProvider, apiKey: string, mod
   try {
     switch (provider) {
       case 'gemini': {
+        // 非流式端点，用于验证 Key / 模型名可用。
+        // ⚠️ **必须断言真的拿到了正文**：只判 `resp.ok` 的话，「协议/解析层不兼容」
+        //    会被报成「连接成功 ✓」——2026-09-22 的教训（缺 alt=sse 时正是如此，
+        //    连接测试全绿、对话却一个字都没有）。
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         const resp = await fetch(url, {
           method: 'POST',
@@ -685,7 +748,23 @@ export async function testAIConnection(provider: AIProvider, apiKey: string, mod
           const err = await resp.json().catch(() => ({}));
           return { ok: false, message: (err as any).error?.message || `HTTP ${resp.status}` };
         }
-        return { ok: true, message: '连接成功 ✓' };
+        const data = (await resp.json().catch(() => null)) as GeminiResponseShape | null;
+        const parts = data?.candidates?.[0]?.content?.parts ?? [];
+        const text = parts
+          .filter(p => !p.thought)
+          .map(p => p.text ?? '')
+          .join('')
+          .trim();
+        if (!text) {
+          const reason = data?.promptFeedback?.blockReason ?? data?.candidates?.[0]?.finishReason;
+          const detail = parts.some(p => p.thought)
+            ? '只返回了思考内容，没有正文（可能输出预算被思考占用）'
+            : reason
+              ? `未返回任何内容（${reason}）`
+              : '未返回任何内容，请确认该模型名对当前 Key 可用';
+          return { ok: false, message: `接口可达，但${detail}` };
+        }
+        return { ok: true, message: `连接成功 ✓（模型回复：${text.slice(0, 20)}）` };
       }
       case 'openai':
       case 'deepseek':
