@@ -20,7 +20,7 @@
  * | precision | 精度 | B50 平均达成率 | 97.5 → 100.2 |
  * | consistency | 稳定 | B50 内达成率标准差（逆向） | 1.4 → 0.3 |
  * | balance | 专项均衡 | 各技术类型中**最弱一类**的 ownDelta | −1.2 → +0.2 |
- * | hardness | 硬度 | 混合口径：B50 内硬谱占比 + 全成绩硬谱表现 | 见 HardnessBreakdown |
+ * | hardness | 硬度 | 硬谱相对**同定数非硬谱**的落差 | 见 HardnessBreakdown |
  * | adaptation | 版本适应 | B15 平均定数 ÷ B35 平均定数 | 0.97 → 1.03 |
  */
 import type { B50Record } from '@/types/b50';
@@ -39,6 +39,7 @@ import type {
   ChartAnalysis,
   GenreTaste,
   HardnessBreakdown,
+  HardnessBin,
   RelativeVerdict,
   TagPerformance,
   TypeChartRef,
@@ -138,9 +139,9 @@ export interface AnalyzeB50Input {
   playerName: string;
   /**
    * 全量游玩记录（含历史重复行）。
-   * 用途：**硬度**维度需要看 B50 之外的硬谱表现 ——
+   * 用途：**硬度**维度需要它来构建「同定数非硬谱」对照池 ——
    * 因为 B50 只收「打得最好的 50 首」，硬谱天然被挤出，只看 B50 会让该维度零区分度。
-   * 省略或传空数组时，硬度退化为「只看 B50 内占比」的旧口径。
+   * ⚠️ 省略或传空数组时对照池为空 → 所有硬谱因「对照不足」被排除 → 硬度取中性 50。
    */
   allPlays?: PlayRecord[];
 }
@@ -174,6 +175,26 @@ function shrink(delta: number, n: number): number {
  * 进而让「硬度」维度虚高（曾出现 Δ≈0 → 99 分）。
  */
 const HARD_CONST_MARGIN = 0.5;
+
+/**
+ * 硬度落差的映射区间（**2026-09-22 新口径**）。
+ *
+ * ⚠️ 这是「**同定数对照落差**」的区间，与旧口径「相对本人 B50 平均达成率」
+ * **不是同一个量** —— 沿用旧的 `(−2.0, 0)` 会把分数继续压在 0。
+ *
+ * 真实数据标定（1281 张谱面 / 强玩家）：落差稳定在 **−1.4 ~ −1.9**。
+ * 取 `−4.0 → 0`：−1.8 → 55 分（中性偏上）；−3.5 → 12 分（明显短板）；−0.5 → 88 分（硬谱强项）。
+ * 该常数可能需要随样本积累继续标定。
+ */
+const HARD_GAP_LO = -4.0;
+const HARD_GAP_HI = 0;
+
+/**
+ * 「硬谱数达标」门槛：低于此的定数箱样本波动过大，其落差**不可作为结论**。
+ * 实测定数 14.0 箱仅 3 张 → 落差 −5.13；注入子集下仅 1 张 → −16.39，都是噪声不是硬度。
+ * 两处共用同一常量：UI 选「最吃亏箱」时过滤（本文件），快照侧标注「勿据此下结论」（`coachMemory.ts`）。
+ */
+export const MIN_BIN_HARD = 5;
 
 function verdictOf(ownDelta: number | null, count: number): RelativeVerdict {
   if (count < MIN_CHARTS_FOR_VERDICT || ownDelta == null) return 'insufficient';
@@ -403,7 +424,7 @@ function buildDimensions(
     });
   }
 
-  // 5) 硬度 —— 混合口径（B50 内占比 + 全成绩硬谱表现）
+  // 5) 硬度 —— 同定数对照落差（2026-09-22 重做，见 buildHardness）
   dims.push(buildHardnessDimension(hardness));
 
   // 6) 版本适应
@@ -432,41 +453,57 @@ function buildDimensions(
 /**
  * 硬度维度。
  *
- * 口径：**只看硬谱上的实际表现** —— B50 内外的硬谱合并后取达成率最高的若干张，
- * 与本人 B50 平均达成率作差。差得少说明硬谱上并不吃亏。
+ * 口径（**2026-09-22 重做**）：**硬谱相对「同定数非硬谱」的落差** ——
+ * 把 B50 内外的硬谱合并，对每张硬谱在同定数箱（0.5 宽）内找非硬谱作对照，
+ * 算落差后按硬谱数加权平均。落差越接近 0 = 硬谱上越不吃亏。
+ *
+ * ⚠️ 旧口径（vs 本人 B50 平均达成率）有严重选择效应，详见
+ * `types/b50Analysis.ts` 里 `HardnessBreakdown` 的注释。
  *
  * 为什么不把「B50 内硬谱占比」算进分数：B50 只收打得最好的 50 首，
  * 而诈称谱难打 → 天然被挤出 → 占比低是**必然结果**，不是玩家短板。
  * 该占比只在 rawLabel 里作为描述信息出现。
  */
 function buildHardnessDimension(h: HardnessBreakdown): AbilityDimension {
-  if (h.hardDelta == null) {
+  if (h.hardGap == null) {
     return {
       id: 'hardness', label: '硬度', score: 50, raw: 0,
       rawLabel: `可比硬谱不足（B50 内 ${h.b50HardCount}/${h.b50RatedCount}）`,
       basis:
-        '硬谱上的相对表现 —— 与 B50 定数可比的硬谱不足 3 张，样本波动过大，取中性值 50。' +
+        '硬谱上的相对表现 —— 有同定数对照的硬谱不足 3 张，样本波动过大，取中性值 50。' +
         '通常是社区标注覆盖不足、统计基准不可用，或 B50 定数区间内确实没有硬谱。',
       insufficient: true,
     };
   }
 
+  // ⚠️ 只从「硬谱数达标」的箱里挑最吃亏的：1~2 张硬谱的箱落差波动极大
+  //（实测注入子集下 14.0 箱仅 1 张硬谱、落差 −16.39），不能当结论展示。
+  // 快照侧 coachMemory.ts 对 <MIN_BIN_HARD 的箱有「勿据此下结论」标注，此处与它保持一致。
+  const reliableBins = h.bins.filter((b) => b.hardCount >= MIN_BIN_HARD);
+  const worst =
+    reliableBins.length > 0 ? reliableBins.reduce((a, b) => (b.gap < a.gap ? b : a)) : null;
   return {
     id: 'hardness',
     label: '硬度',
-    score: Math.round(mapRange(h.hardDelta, -2.0, 0)),
-    raw: round(h.hardDelta, 3),
+    score: Math.round(mapRange(h.hardGap, HARD_GAP_LO, HARD_GAP_HI)),
+    raw: round(h.hardGap, 3),
     rawLabel:
-      `可比硬谱 ${h.hardCount} 张（B50 内 ${h.b50HardCount}）· 平均 ` +
-      `${h.sampleAvgAchievement?.toFixed(2) ?? '?'}%（Δ${h.hardDelta >= 0 ? '+' : ''}${h.hardDelta.toFixed(2)}）`,
+      `同定数对照落差 ${h.hardGap >= 0 ? '+' : ''}${h.hardGap.toFixed(2)}` +
+      `（${h.hardCount} 张硬谱 vs ${h.controlPoolSize} 张同定数非硬谱` +
+      `${worst ? `；最吃亏：定数 ${worst.constant.toFixed(1)} 箱 ${worst.gap >= 0 ? '+' : ''}${worst.gap.toFixed(2)}` : ''}）`,
     basis:
-      '硬谱（社区标「诈称谱」或统计口径水度 z ≤ −1.5）上的实际表现：' +
-      '把 B50 内外的硬谱合并、按谱面取最高成就，' +
-      `**只保留定数 ≥ ${h.comparableMinConstant}（与 B50 可比）的**，` +
-      '算它们平均达成率相对本人 B50 平均达成率的差，映射区间 −2.0 → 0。' +
+      '硬度 = 硬谱相对**同定数非硬谱**的落差。做法：把 B50 内外的硬谱合并、按谱面取最高成就，' +
+      `只保留定数 ≥ ${h.comparableMinConstant}（与 B50 可比）的；` +
+      '对每张硬谱，在**同定数箱（0.5 宽）**内找非硬谱作对照，' +
+      '算「硬谱达成率 − 同箱对照平均达成率」，再按硬谱数加权平均，映射区间 −4.0 → 0。' +
+      '⚠️ 为什么不直接和「本人 B50 平均」比：B50 按 ra 取前 50，而同定数下达成率低的谱 ra 就低、' +
+      '**必然落在 B50 外** —— 把 B50 外硬谱算进去会把落差系统性拉大，而那是「没进 B50」本身' +
+      '造成的，不是硬度（实测 −3.9 vs 同定数对照 −1.8）。' +
+      '⚠️ 已知残留：硬谱比非硬谱更容易被放弃（打一次就放着），所以本口径仍会**略微低估**硬度。' +
       '⚠️ 两点口径说明：① B50 内硬谱占比**不计入分数**（硬谱难打天然被挤出，占比低是必然结果）；' +
       '② 低定数硬谱（如 ADV 8.0）达成率天然接近 100%，已按定数门槛排除' +
-      `${h.excludedByConstant > 0 ? `（本次排除 ${h.excludedByConstant} 张）` : ''}，否则 Δ 会虚高。`,
+      `${h.excludedByConstant > 0 ? `（本次排除 ${h.excludedByConstant} 张）` : ''}` +
+      `${h.excludedByControl > 0 ? `；另有 ${h.excludedByControl} 张因同定数箱对照不足 3 张被排除` : ''}。`,
   };
 }
 
@@ -664,14 +701,17 @@ function buildTypeCombos(
 }
 
 /**
- * 硬度取数。
+ * 硬度取数（**2026-09-22 新口径：同定数对照落差**）。
  *
- * 把 **B50 内外的硬谱合并**（按谱面归并，B50 的谱面不重复计入），
- * 取达成率最高的若干张，与本人 B50 平均达成率作差。
+ * 把 B50 内外的硬谱合并（按谱面归并），**每张硬谱都与同定数箱内的非硬谱对照**，
+ * 算落差后按硬谱数加权平均 → `hardGap`（参与评分）。
  *
  * 判定「硬谱」的两个口径（满足其一即可）：
  *   a) 社区标注「诈称谱」
  *   b) 统计口径：水度分难度 z-score ≤ −1.5
+ *
+ * ⚠️ 为什么不和「本人 B50 平均达成率」比（旧口径）：见 `types/b50Analysis.ts`
+ * 里 `HardnessBreakdown` 的注释 —— 那会把「没进 B50」这个事实本身误算成硬度短板。
  */
 function buildHardness(
   charts: ChartAnalysis[],
@@ -688,7 +728,7 @@ function buildHardness(
 
   // ── 可比定数下限（⚠️ 关键门槛）──
   // B50 之外的低定数硬谱（ADV 8.0 之类）达成率天然接近 100%，
-  // 混进来会把 hardDelta 拉得虚高 → 硬度虚高。必须限定「与 B50 可比」。
+  // 混进来会把落差拉得虚高 → 硬度虚高。必须限定「与 B50 可比」。
   const b50Consts = charts
     .map(c => c.constant)
     .filter((v): v is number => typeof v === 'number' && v > 0);
@@ -701,11 +741,7 @@ function buildHardness(
     return constant != null && constant >= comparableMin;
   };
 
-  // ── 评分口径：B50 内硬谱先入池（它们的定数天然与 B50 可比） ──
-  const hardRefs: TypeChartRef[] = b50Hard.map(toRef);
-  let excludedByConstant = 0;
-
-  // ── 再把 B50 之外、定数可比的硬谱补进来（同一谱面只留最高达成率那一条） ──
+  // ── 全量谱面视图（B50 内外都在里面，按谱面取最高成就）──
   const bestByChart = new Map<string, PlayRecord>();
   for (const p of allPlays) {
     const key = chartTagKey(p.songId, p.difficulty);
@@ -715,15 +751,29 @@ function buildHardness(
 
   const inB50 = new Set(charts.map(c => chartTagKey(c.songId, c.difficulty)));
 
+  /** 取谱面定数：优先曲库，退化到成绩自带 */
+  const constantOf = (p: PlayRecord): number | null => {
+    const song = songMap.get(p.songId);
+    const c = song ? getConstByDifficulty(song, p.difficulty) : null;
+    if (c != null) return c;
+    return typeof p.constant === 'number' ? p.constant : null;
+  };
+
+  /** 定数箱下界（箱宽 0.5），如 13.2 → 13.0 */
+  const binOf = (c: number): number => Math.floor(c * 2) / 2;
+
+  // ── 评分口径：B50 内硬谱先入池（它们的定数天然与 B50 可比） ──
+  const hardRefs: TypeChartRef[] = b50Hard.map(toRef);
+  const hardKeys = new Set(b50Hard.map(c => chartTagKey(c.songId, c.difficulty)));
+  let excludedByConstant = 0;
+
+  // ── 再把 B50 之外、定数可比的硬谱补进来 ──
   for (const [key, p] of bestByChart) {
     if (inB50.has(key)) continue;
 
     const byTag = (tagCatalog?.byChart.get(key) ?? []).some(t => t.id === TAG_IDS.UNDERRATED);
 
-    const song = songMap.get(p.songId);
-    const constant = song
-      ? getConstByDifficulty(song, p.difficulty)
-      : (typeof p.constant === 'number' ? p.constant : null);
+    const constant = constantOf(p);
 
     let byStat = false;
     const levelIndex = DIFFICULTY_INDEX[p.difficulty];
@@ -740,15 +790,16 @@ function buildHardness(
 
     if (!byTag && !byStat) continue;
 
-    // ⚠️ 定数门槛：低定数硬谱达成率天然高，会污染 Δ
+    // ⚠️ 定数门槛：低定数硬谱达成率天然高，会污染落差
     if (!isComparable(constant)) {
       excludedByConstant += 1;
       continue;
     }
 
+    hardKeys.add(key);
     hardRefs.push({
       songId: p.songId,
-      title: song?.title ?? `#${p.songId}`,
+      title: songMap.get(p.songId)?.title ?? `#${p.songId}`,
       difficulty: p.difficulty,
       constant,
       achievements: round(p.achievements, 3),
@@ -756,26 +807,87 @@ function buildHardness(
     });
   }
 
-  // ⚠️ 全部可比硬谱参与评分 —— **不再截断**（原先取达成率最高的 8 张是选择偏差）
-  hardRefs.sort((a, b) => b.achievements - a.achievements);
+  // ── 对照池：定数可比、且**不是**硬谱的谱面（B50 内外都算） ──
+  // 对照组必须来自与硬谱相同的「选择环境」，所以用**全量谱面**而非只看 B50。
+  const controlByBin = new Map<number, number[]>();
+  let controlPoolSize = 0;
+  for (const [key, p] of bestByChart) {
+    if (hardKeys.has(key)) continue; // 硬谱不作自己的对照
+    const constant = constantOf(p);
+    if (constant == null || !isComparable(constant)) continue;
+    const bin = binOf(constant);
+    const arr = controlByBin.get(bin);
+    if (arr) arr.push(p.achievements);
+    else controlByBin.set(bin, [p.achievements]);
+    controlPoolSize += 1;
+  }
+
+  // ── 逐张硬谱算「同定数箱落差」 ──
+  // 同箱非硬谱少于 MIN_CONTROL 张时对照不可信 → 该硬谱不参与评分。
+  const MIN_CONTROL = 3;
+  let excludedByControl = 0;
+  const binAcc = new Map<number, { hard: number[]; control: number[] }>();
+  const gaps: number[] = [];
+  const kept: TypeChartRef[] = [];
+
+  for (const ref of hardRefs) {
+    if (ref.constant == null) {
+      excludedByControl += 1;
+      continue;
+    }
+    const bin = binOf(ref.constant);
+    const ctrl = controlByBin.get(bin) ?? [];
+    if (ctrl.length < MIN_CONTROL) {
+      excludedByControl += 1;
+      continue;
+    }
+
+    const controlAvg = mean(ctrl);
+    gaps.push(ref.achievements - controlAvg);
+    kept.push(ref);
+
+    const acc = binAcc.get(bin);
+    if (acc) acc.hard.push(ref.achievements);
+    else binAcc.set(bin, { hard: [ref.achievements], control: ctrl });
+  }
+
+  kept.sort((a, b) => b.achievements - a.achievements);
 
   // 样本太少时不硬给结论（3 张以下的平均波动过大）
-  const enough = hardRefs.length >= MIN_CHARTS_FOR_VERDICT;
-  const sampleAvgAchievement = enough ? round(mean(hardRefs.map(s => s.achievements)), 3) : null;
-  const hardDelta = sampleAvgAchievement != null
-    ? round(sampleAvgAchievement - ownAvg, 3)
-    : null;
+  const enough = kept.length >= MIN_CHARTS_FOR_VERDICT;
+  const sampleAvgAchievement = enough ? round(mean(kept.map(s => s.achievements)), 3) : null;
+  const hardDelta = sampleAvgAchievement != null ? round(sampleAvgAchievement - ownAvg, 3) : null;
+  const hardGap = enough ? round(mean(gaps), 3) : null;
+
+  const bins: HardnessBin[] = [...binAcc.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([constant, v]) => {
+      const hardAvg = mean(v.hard);
+      const controlAvg = mean(v.control);
+      return {
+        constant,
+        hardCount: v.hard.length,
+        controlCount: v.control.length,
+        hardAvg: round(hardAvg, 3),
+        controlAvg: round(controlAvg, 3),
+        gap: round(hardAvg - controlAvg, 3),
+      };
+    });
 
   return {
-    hardCount: hardRefs.length,
+    hardCount: kept.length,
     excludedByConstant,
+    excludedByControl,
     comparableMinConstant: comparableMin,
+    controlPoolSize,
     b50HardCount: b50Hard.length,
     b50RatedCount: b50Rated.length,
     b50HardRate: round(b50Rated.length > 0 ? b50Hard.length / b50Rated.length : 0, 4),
     sampleAvgAchievement,
     hardDelta,
-    samples: hardRefs,
+    hardGap,
+    bins,
+    samples: kept,
   };
 }
 

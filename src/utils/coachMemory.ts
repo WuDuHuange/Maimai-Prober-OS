@@ -24,6 +24,7 @@
  */
 import type { B50AnalysisResult } from '@/types/b50Analysis';
 import { DIFFICULTY_LABEL_SHORT } from '@/types/song';
+import { MIN_BIN_HARD } from '@/utils/b50Analysis';
 
 /** 各层字符预算 */
 export const CONTEXT_BUDGET = {
@@ -269,16 +270,25 @@ export function renderAnalysisSnapshot(r: B50AnalysisResult): string {
   const hd = r.hardness;
   L.push(`\n### 硬度口径分解`);
   L.push(
-    `- 识别到硬谱 ${hd.hardCount} 张（社区标「诈称谱」或水度 z ≤ −1.5）；` +
+    `- 参与评分的硬谱 ${hd.hardCount} 张（社区标「诈称谱」或水度 z ≤ −1.5，且定数 ≥ ${hd.comparableMinConstant}）；` +
     `其中落在 B50 里的只有 ${hd.b50HardCount}/${hd.b50RatedCount} 张（${(hd.b50HardRate * 100).toFixed(1)}%）`
   );
   L.push(
-    `- 取达成率最高的 ${hd.samples.length} 张硬谱：平均 ${hd.sampleAvgAchievement?.toFixed(2) ?? '?'}%，` +
-    `相对本人 B50 平均 ${fmtDelta(hd.hardDelta)}`
+    `- **同定数对照落差 ${fmtDelta(hd.hardGap)}**：${hd.hardCount} 张硬谱 vs ` +
+    `${hd.controlPoolSize} 张同定数非硬谱（硬谱绝对平均 ${hd.sampleAvgAchievement?.toFixed(2) ?? '?'}%，仅描述、不计分）`
   );
+  if (hd.bins.length > 0) {
+    L.push(
+      `- 分箱落差：` +
+      hd.bins
+        .map(b => `${b.constant.toFixed(1)} ${fmtDelta(b.gap)}${b.hardCount < MIN_BIN_HARD ? `(仅${b.hardCount}张，勿据此下结论)` : ''}`)
+        .join(' / ')
+    );
+  }
   L.push(
-    `- ⚠️ B50 内硬谱占比低是**正常现象**（硬谱难打 → 进不了 B50），该占比**不计入评分**。` +
-    `硬度分数只看硬谱上的实际表现。`
+    `- ⚠️ 硬度**不与本人 B50 平均比**：B50 按 ra 取前 50，同定数下达成率低的谱必然落在 B50 外，` +
+    `算进去会把落差系统性拉大（那是「没进 B50」本身造成的，不是硬度）。` +
+    `B50 内硬谱占比低是**正常现象**，该占比**不计入评分**。`
   );
   if (hd.samples.length > 0) {
     L.push(
