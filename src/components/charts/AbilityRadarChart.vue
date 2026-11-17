@@ -7,10 +7,15 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import * as echarts from 'echarts';
-import type { AbilityDimension } from '@/types/b50Analysis';
+
+/** 只依赖 label/score，便于对比视图复用（不需要构造完整的 AbilityDimension） */
+export interface RadarDimension {
+  label: string;
+  score: number;
+}
 
 const props = withDefaults(defineProps<{
-  dimensions: AbilityDimension[];
+  dimensions: RadarDimension[];
   height?: number;
   /** 对比线（例如「上一版分析」），同长度同顺序 */
   compare?: number[] | null;
@@ -131,14 +136,29 @@ function buildOption(): echarts.EChartsOption {
 
 let lastW = 0;
 let lastH = 0;
-let rafId = 0;
+
+/**
+ * 量宽度必须看**父容器**。
+ * ECharts `init(el)` 会把 `width/height` 写成 `el` 的内联样式（实测 637px），
+ * 之后 `el.clientWidth` 就是被污染的值 —— 用它反推只会把错误宽度锁死。
+ */
+function measure() {
+  const el = chartEl.value;
+  const wrap = el?.parentElement;
+  return { el, w: wrap?.clientWidth ?? 0, h: props.height };
+}
 
 function render() {
-  const el = chartEl.value;
-  if (!el) return;
+  const { el, w, h } = measure();
+  if (!el || !w || !h) return;
   if (!chart) chart = echarts.init(el);
-  lastW = el.clientWidth;
-  lastH = el.clientHeight;
+  // 把容器尺寸显式写回去（覆盖 ECharts 留下的旧值），再 resize 画布。
+  // 只调 setOption 不会改 canvas 尺寸，右侧轴标签会被挤出卡片。
+  if (el.style.width !== `${w}px`) el.style.width = `${w}px`;
+  el.style.height = `${h}px`;
+  if (chart.getWidth() !== w || chart.getHeight() !== h) chart.resize({ width: w, height: h });
+  lastW = w;
+  lastH = h;
   chart.setOption(buildOption(), true);
 }
 
@@ -146,17 +166,16 @@ function render() {
  * 容器尺寸变了要**重算 option**，不能只调 `chart.resize()`。
  * 半径是按容器尺寸反推的，只 resize 会沿用旧百分比 ——
  * 容器从「扁」变「方」时横向上又会切到两侧轴标签。
- * 用 rAF 合并连续变化（侧栏折叠的 width 过渡会连打几十帧）。
+ *
+ * ⚠️ 不要用 rAF 做门控：无头浏览器里 rAF 可能被暂停，`rafId` 永远不归零，
+ *    之后所有 resize 都会被早退掉（实测雷达图卡在 637px 不跟随容器）。
+ *    ResizeObserver 本身已按帧合并，这里直接重绘即可。
  */
 function scheduleRender() {
-  if (rafId) return;
-  rafId = requestAnimationFrame(() => {
-    rafId = 0;
-    const el = chartEl.value;
-    if (!el) return;
-    if (el.clientWidth === lastW && el.clientHeight === lastH) return;
-    render();
-  });
+  const { el, w, h } = measure();
+  if (!el) return;
+  if (w === lastW && h === lastH) return;
+  render();
 }
 
 let ro: ResizeObserver | null = null;
@@ -168,16 +187,15 @@ onMounted(async () => {
   // echarts 只监听 window.resize —— 容器自身宽度变化不会触发重绘。
   // 侧栏折叠/展开、容器查询降级、flex 重新分配宽度都属于这一类，
   // 表现是 canvas 宽度恒为 0（图表整片空白），且永远不会自愈。
-  if (typeof ResizeObserver !== 'undefined' && chartEl.value) {
+  // 观察父容器：chartEl 自身的宽度被 ECharts 写成固定值后不会再随布局变化
+  if (typeof ResizeObserver !== 'undefined' && chartEl.value?.parentElement) {
     ro = new ResizeObserver(scheduleRender);
-    ro.observe(chartEl.value);
+    ro.observe(chartEl.value.parentElement);
   }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleRender);
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = 0;
   ro?.disconnect();
   ro = null;
   chart?.dispose();

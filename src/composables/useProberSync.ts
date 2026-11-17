@@ -4,6 +4,7 @@ import { useSongStore } from '@/stores/useSongStore';
 import { usePlayLogStore } from '@/stores/usePlayLogStore';
 import { useB50Store } from '@/stores/useB50Store';
 import { usePlayerStore } from '@/stores/usePlayerStore';
+import { useB50HistoryStore } from '@/stores/useB50HistoryStore';
 
 export function useProberSync() {
   const syncStore = useSyncStore();
@@ -11,6 +12,7 @@ export function useProberSync() {
   const playLogStore = usePlayLogStore();
   const b50Store = useB50Store();
   const playerStore = usePlayerStore();
+  const historyStore = useB50HistoryStore();
 
   async function startSync(token: string) {
     syncStore.startSync();
@@ -40,6 +42,16 @@ export function useProberSync() {
       await songStore.loadFromDB();
       await playLogStore.loadFromDB();
       await b50Store.loadFromDB();
+
+      // 同步后自动留档：内容与上一份完全一致时不会重复存（service 内部按指纹去重）。
+      // ⚠️ 不能让它影响同步结果 —— 历史快照是附加功能，失败只记日志。
+      try {
+        // 接口没给 rating 时用 B50 理论值兜底，避免快照里出现 0
+        const rating = result.playerRating || b50Store.computedRating;
+        await historyStore.capture(b50Store.b50List, rating, 'sync');
+      } catch (e) {
+        console.warn('[B50History] 快照保存失败（不影响同步）:', e);
+      }
     } catch (err: any) {
       console.error('[Sync] 失败:', err?.message || err);
       syncStore.failSync(err?.message ?? String(err));

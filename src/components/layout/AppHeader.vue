@@ -91,6 +91,7 @@ const navItems = [
   { key: 'stats', label: '统计' },
   { key: 'galaxy', label: '3D 星系' },
   { key: 'songs', label: '歌曲库' },
+  { key: 'growth', label: '成长' },
   { key: 'ai', label: 'AI复盘' },
   { key: 'settings', label: '设置' },
 ];

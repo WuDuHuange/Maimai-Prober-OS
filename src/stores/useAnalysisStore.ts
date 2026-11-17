@@ -20,6 +20,8 @@ import { useSongStore } from './useSongStore';
 import { usePlayerStore } from './usePlayerStore';
 import { useTagStore } from './useTagStore';
 import { usePlayLogStore } from './usePlayLogStore';
+import { useB50HistoryStore } from './useB50HistoryStore';
+import { b50Fingerprint, buildAbilitySnapshot } from '@/services/b50HistoryService';
 
 export const useAnalysisStore = defineStore('analysis', () => {
   const result = ref<B50AnalysisResult | null>(null);
@@ -83,7 +85,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       ]);
 
       // 5) 分析
-      result.value = analyzeB50({
+      const analysis = analyzeB50({
         b50List: b50Store.b50List,
         songMap: songStore.songs,
         tagCatalog: tagStore.catalog,
@@ -92,8 +94,29 @@ export const useAnalysisStore = defineStore('analysis', () => {
         playerName: usePlayerStore().playerName,
         allPlays: playLogStore.records,
       });
+      result.value = analysis;
 
-      return result.value;
+      // 6) 把六维指纹挂到「与当前 B50 内容一致」的历史快照上。
+      //    历史 B50 无法重算六维（硬度依赖当时的全量成绩），所以只能存当时的分析结果。
+      //    失败不影响分析本身 —— 缺指纹时对比页会退化成「只对比结构」。
+      try {
+        const historyStore = useB50HistoryStore();
+        if (historyStore.entries.length === 0) await historyStore.load();
+        const fingerprint = b50Fingerprint(b50Store.b50List);
+        const ability = buildAbilitySnapshot(analysis);
+        if (!(await historyStore.attach(fingerprint, ability))) {
+          // 没有对应快照：老用户升级前就已有 B50，但历史表是空的。
+          // 先补一份当前基线，再把六维挂上去（否则这次分析会白跑，对比页没有六维）。
+          const rating = usePlayerStore().currentRating || b50Store.computedRating;
+          if (await historyStore.capture(b50Store.b50List, rating, 'bootstrap')) {
+            await historyStore.attach(fingerprint, ability);
+          }
+        }
+      } catch (e) {
+        console.warn('[B50History] 能力指纹附加失败（不影响分析）:', e);
+      }
+
+      return analysis;
     } catch (e: any) {
       lastError.value = e?.message ?? '分析失败';
       console.warn('[Analysis] 分析失败:', e);

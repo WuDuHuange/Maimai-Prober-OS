@@ -28,6 +28,7 @@ import type { PlayRecord } from '@/types/playRecord';
 import type { SongMeta, DifficultyType } from '@/types/song';
 import { getConstByDifficulty } from '@/types/song';
 import type { TagCatalog } from '@/types/tag';
+import { isPlausibleAchievement } from '@/utils/rating';
 import { DIFFICULTY_INDEX, TAG_IDS, TAG_GROUP_IDS, EVALUATION_TAG_ORDER, chartTagKey } from '@/types/tag';
 import type { ChartStatsPayload } from '@/services/chartStatsApi';
 import { getChartStat } from '@/services/chartStatsApi';
@@ -215,8 +216,12 @@ function toRef(c: ChartAnalysis): TypeChartRef {
 }
 
 export function analyzeB50(input: AnalyzeB50Input): B50AnalysisResult {
-  const { b50List, songMap, tagCatalog, statsPayload, playerRating, playerName } = input;
-  const allPlays = input.allPlays ?? [];
+  const { songMap, tagCatalog, statsPayload, playerRating, playerName } = input;
+  // 脏数据防线：水鱼实测存在 188.41% / 0% 的记录。
+  // B50 名单来自本地快照（一般已干净），但 `allPlays` 是硬度对照池的原料，
+  // 一条 188% 就足以把同定数对照均值抬高（实测硬度 59 → 54），必须在这里拦掉。
+  const b50List = input.b50List.filter(rec => isPlausibleAchievement(rec.achievements));
+  const allPlays = (input.allPlays ?? []).filter(p => isPlausibleAchievement(p.achievements));
 
   const waterBaseline = computeWaterBaseline(statsPayload);
 

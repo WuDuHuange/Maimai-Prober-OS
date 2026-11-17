@@ -41,6 +41,7 @@
           />
           <GalaxyView v-else-if="activeTab === 'galaxy'" @select-song="handleSelectSong" />
           <StatsView v-else-if="activeTab === 'stats'" />
+          <GrowthView v-else-if="activeTab === 'growth'" />
           <SongLibraryView
             v-else-if="activeTab === 'songs'"
             @select-song="handleSelectSong"
@@ -85,6 +86,7 @@ import DashboardView from '@/views/DashboardView.vue';
 const GalaxyView = defineAsyncComponent(() => import('@/views/GalaxyView.vue'));
 import SongLibraryView from '@/views/SongLibraryView.vue';
 import StatsView from '@/views/StatsView.vue';
+import GrowthView from '@/views/GrowthView.vue';
 import SongDetailView from '@/views/SongDetailView.vue';
 import AIChatPanel from '@/components/ai/AIChatPanel.vue';
 import CoachReportModal from '@/components/ai/CoachReportModal.vue';
