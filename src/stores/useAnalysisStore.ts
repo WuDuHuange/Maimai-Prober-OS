@@ -12,6 +12,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { B50AnalysisResult } from '@/types/b50Analysis';
+import type { AbilitySnapshot } from '@/types/b50History';
+import type { B50Record } from '@/types/b50';
 import { analyzeB50 } from '@/utils/b50Analysis';
 import { fetchChartStats, clearStatsCache, type ChartStatsPayload } from '@/services/chartStatsApi';
 import { clearTagCache } from '@/services/dxRatingApi';
@@ -132,6 +134,79 @@ export const useAnalysisStore = defineStore('analysis', () => {
     lastError.value = null;
   }
 
+  /**
+   * 用**指定的一份 B50** 重算六维（历史快照补算用）。
+   *
+   * 与 `runAnalysis` 共用同一套数据源，区别只在 b50List 的来源。
+   *
+   * @param estimated 标记「事后补算」。硬度依赖全量成绩做同定数分箱对照，
+   *                  而历史全量成绩无法回放 —— 补算历史快照时对照池是今天的。
+   *                  其余五维只吃这份 B50，补算值与当时一致。
+   *                  同步后立即补算**不要**传 true（全量成绩就是刚同步的）。
+   */
+  async function computeAbilityFor(
+    records: B50Record[],
+    opts: { estimated?: boolean } = {},
+  ): Promise<AbilitySnapshot | null> {
+    if (records.length === 0) return null;
+
+    const songStore = useSongStore();
+    const tagStore = useTagStore();
+    const playLogStore = usePlayLogStore();
+    if (songStore.songs.size === 0) await songStore.loadFromDB();
+    if (playLogStore.records.length === 0) await playLogStore.loadFromDB();
+    // 基准与 tag 都是可选的：拿不到时对应维度标 insufficient，其余照常
+    await Promise.all([
+      ensureStats(false).catch(() => {}),
+      tagStore.load(false).catch(() => {}),
+    ]);
+
+    // ⚠️ 没有全服基准时硬度只能取中性 50（insufficient）。实时展示无所谓，
+    //    但写进历史快照就会变成「当时硬度 50」的假结论 —— 宁可失败让用户重试。
+    if (!statsPayload.value) return null;
+
+    const r = analyzeB50({
+      b50List: records,
+      songMap: songStore.songs,
+      tagCatalog: tagStore.catalog,
+      statsPayload: statsPayload.value,
+      playerRating: usePlayerStore().currentRating,
+      playerName: usePlayerStore().playerName,
+      allPlays: playLogStore.records,
+    });
+    return buildAbilitySnapshot(r, opts.estimated === true);
+  }
+
+  /**
+   * 给所有缺六维的历史快照补算。
+   *
+   * 老用户升级前的快照、以及「同步后没再分析」的快照都会缺 ——
+   * 不补的话对比页永远只能比结构，判定恒为 unknown。
+   *
+   * @returns 实际补上的份数
+   */
+  async function backfillHistoryAbility(): Promise<number> {
+    const historyStore = useB50HistoryStore();
+    if (historyStore.entries.length === 0) await historyStore.load();
+
+    const missing = historyStore.entries.filter(e => !e.ability);
+    if (missing.length === 0) return 0;
+
+    const b50Store = useB50Store();
+    if (b50Store.b50List.length === 0) await b50Store.loadFromDB();
+    // 与当前 B50 内容一致的快照 = 就是「现在」，全量成绩也是现在的 → 不算补算
+    const currentFp = b50Store.b50List.length > 0 ? b50Fingerprint(b50Store.b50List) : null;
+
+    let done = 0;
+    for (const entry of missing) {
+      const ability = await computeAbilityFor(entry.records, {
+        estimated: entry.fingerprint !== currentFp,
+      });
+      if (ability && (await historyStore.attach(entry.fingerprint, ability))) done += 1;
+    }
+    return done;
+  }
+
   /** 强制刷新全部数据源（清基准缓存 + 清 tag 缓存 + 重建 tag join） */
   async function refreshAll() {
     await Promise.all([clearStatsCache(), clearTagCache()]);
@@ -144,5 +219,6 @@ export const useAnalysisStore = defineStore('analysis', () => {
     result, statsPayload, isAnalyzing, statsOrigin, lastError,
     hasResult, headline,
     ensureStats, runAnalysis, reset, refreshAll,
+    computeAbilityFor, backfillHistoryAbility,
   };
 });

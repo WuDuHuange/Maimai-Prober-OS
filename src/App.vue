@@ -128,15 +128,16 @@ onMounted(async () => {
   // 注：原先这里调 useSettingsStore().checkSettings() —— 该 store 的两个输出
   //     (hasToken / hasGeminiKey) 全仓零消费，且 prober_token_enc 只读不写。
   //     已连同 store 一起清理（见 .workbuddy-ai/trash/dead-code-2026-09-21/）。
+  // 恢复上次同步的玩家信息：刷新后直接进主界面。
+  // 不恢复的话每次刷新都会退回欢迎页、被迫重新同步一遍（用户报过）。
+  // 注意这里恢复的是**上次同步时的快照**，rating 可能已经不是最新 ——
+  // 界面上的同步入口与时间戳仍然有效，用户随时可以重新同步。
   playerStore.restoreFromStorage();
 
   window.addEventListener('nav-to-settings', onNavSettings);
   window.addEventListener('nav-to-ai', onNavAI);
   window.addEventListener('nav-to-practice-plan', onNavPracticePlan);
   window.addEventListener('nav-to-song', onNavSong);
-
-  // ⚠️ 不再自动恢复 profile —— 用户必须显式点击「同步」才算登录
-  // 如果本地有历史数据但未登录，WelcomeView 提供入口让用户手动同步
 });
 
 onUnmounted(() => {

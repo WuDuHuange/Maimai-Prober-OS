@@ -164,7 +164,14 @@ function buildDimensions(from: B50HistoryEntry, to: B50HistoryEntry): DimensionD
   for (const d of to.ability.dimensions) {
     const p = prev.get(d.id);
     if (!p) continue;
-    out.push({ id: d.id, label: d.label, from: p.score, to: d.score, delta: d.score - p.score });
+    out.push({
+      id: d.id,
+      label: d.label,
+      from: p.score,
+      to: d.score,
+      delta: d.score - p.score,
+      ...(d.insufficient || p.insufficient ? { insufficient: true } : {}),
+    });
   }
   return out.length > 0 ? out : null;
 }
@@ -275,8 +282,10 @@ export function diffSnapshots(
   });
 
   if (dimensions) {
-    const ups = dimensions.filter(d => d.delta > 0).sort((a, b) => b.delta - a.delta);
-    const downs = dimensions.filter(d => d.delta < 0).sort((a, b) => a.delta - b.delta);
+    // 样本不足的维度分数是中性 50，不能拿它说「提升最多 / 回落」
+    const rated = dimensions.filter(d => !d.insufficient);
+    const ups = rated.filter(d => d.delta > 0).sort((a, b) => b.delta - a.delta);
+    const downs = rated.filter(d => d.delta < 0).sort((a, b) => a.delta - b.delta);
     if (ups.length > 0) {
       const d = ups[0];
       narrative.push({ tone: 'up', text: `六维提升最多：${d.label} ${d.from} → ${d.to}（${fmtSigned(d.delta, 0)}）` });
@@ -326,6 +335,11 @@ export function diffSnapshots(
     narrative.push({
       tone: 'flat',
       text: '这两份快照至少有一份没生成六维能力分析，因此只对比结构，不判断强弱迁移',
+    });
+  } else if (from.ability?.estimated || to.ability?.estimated) {
+    narrative.push({
+      tone: 'flat',
+      text: '含补算的六维：硬度按当前全量成绩推算，其余五维与当时一致',
     });
   }
 

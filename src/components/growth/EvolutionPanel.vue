@@ -84,7 +84,9 @@
         <section class="card-static">
           <div class="sec-head">
             <h3>六维变化</h3>
-            <span class="sec-hint">实线 = 现在 · 虚线 = 上一次</span>
+            <span class="sec-hint">
+              <template v-if="hasEstimated">含补算 · 硬度按当前成绩推算 · </template>实线 = 现在 · 虚线 = 上一次
+            </span>
           </div>
           <AbilityRadarChart
             v-if="diff.dimensions"
@@ -93,8 +95,14 @@
             :height="288"
           />
           <div v-else class="no-ability">
-            <p>这两份快照至少有一份没有六维数据。</p>
-            <p class="hint">六维依赖当时的全量成绩（硬度要看 B50 外的硬谱），历史无法重算 —— 所以只对比结构，不猜强弱。</p>
+            <p>有 {{ missingEntries.length }} 份快照还没有六维数据。</p>
+            <p class="hint">
+              六维里的「硬度」要看 B50 之外的全量成绩，历史全量成绩无法回放。
+              补算会拿当前成绩当对照池 —— 其余五维与当时一致，硬度可能有偏差。
+            </p>
+            <button class="primary-btn" :disabled="backfilling" @click="runBackfill()">
+              {{ backfilling ? '补算中…' : '补算六维' }}
+            </button>
           </div>
         </section>
 
@@ -104,8 +112,10 @@
             <span class="sec-hint">0–100</span>
           </div>
           <div v-if="diff.dimensions" class="dim-list">
-            <div v-for="d in diff.dimensions" :key="d.id" class="dim-item">
-              <span class="dim-name">{{ d.label }}</span>
+            <div v-for="d in diff.dimensions" :key="d.id" class="dim-item" :class="{ 'dim-weak': d.insufficient }">
+              <span class="dim-name" :title="d.insufficient ? '样本不足，这一维的分数是中性值 50，仅供参考' : ''">
+                {{ d.label }}<i v-if="d.insufficient" class="dim-warn">?</i>
+              </span>
               <span class="dim-track">
                 <i class="dim-fill" :style="{ width: d.to + '%' }" />
                 <i class="dim-mark" :style="{ left: d.from + '%' }" :title="`上次 ${d.from}`" />
@@ -214,6 +224,7 @@ import { useB50Store } from '@/stores/useB50Store';
 import { useSongStore } from '@/stores/useSongStore';
 import { useTagStore } from '@/stores/useTagStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
+import { useAnalysisStore } from '@/stores/useAnalysisStore';
 import { diffSnapshots, fmtSigned } from '@/utils/b50Diff';
 import { DIFFICULTY_LABEL_SHORT } from '@/types/song';
 import { getCoverUrl } from '@/types/sync';
@@ -225,10 +236,12 @@ const b50Store = useB50Store();
 const songStore = useSongStore();
 const tagStore = useTagStore();
 const playerStore = usePlayerStore();
+const analysisStore = useAnalysisStore();
 
 const fromId = ref<number | null>(null);
 const toId = ref<number | null>(null);
 const saving = ref(false);
+const backfilling = ref(false);
 const message = ref<{ text: string; tone: 'ok' | 'warn' } | null>(null);
 
 const entries = computed(() => historyStore.entries);
@@ -258,6 +271,13 @@ const currentDims = computed(() =>
   (diff.value?.dimensions ?? []).map(d => ({ label: d.label, score: d.to })),
 );
 const prevScores = computed(() => (diff.value?.dimensions ?? []).map(d => d.from));
+
+/** 缺六维的快照 —— 补算按钮与提示文案都按它来 */
+const missingEntries = computed(() => entries.value.filter(e => !e.ability));
+/** 当前对比里含补算的六维（硬度失真），要在面板上标明 */
+const hasEstimated = computed(
+  () => !!(fromEntry.value?.ability?.estimated || toEntry.value?.ability?.estimated),
+);
 
 const VERDICT_META: Record<TrendVerdict, { label: string; desc: string; cls: string }> = {
   strength: { label: '在延续强项', desc: '强项的涨幅高于弱项 —— 这段时间主要在把擅长的事做得更稳', cls: 'v-strength' },
@@ -381,6 +401,31 @@ async function remove(e: B50HistoryEntry) {
   syncDefaultPair();
 }
 
+async function runBackfill(silent = false) {
+  if (backfilling.value) return;
+  backfilling.value = true;
+  if (!silent) message.value = null;
+  const before = missingEntries.value.length;
+  try {
+    const n = await analysisStore.backfillHistoryAbility();
+    if (n > 0) {
+      message.value = {
+        text: `已补算 ${n} 份快照的六维（硬度按当前全量成绩推算，其余五维与当时一致）。`,
+        tone: 'ok',
+      };
+    } else if (!silent) {
+      message.value = before > 0
+        ? { text: '补算没成功：全服基准没加载到，检查网络后重试。', tone: 'warn' }
+        : { text: '没有需要补算的快照。', tone: 'warn' };
+    }
+  } catch (e) {
+    console.warn('[B50History] 补算六维失败:', e);
+    if (!silent) message.value = { text: '补算失败，稍后再试。', tone: 'warn' };
+  } finally {
+    backfilling.value = false;
+  }
+}
+
 onMounted(async () => {
   await Promise.all([songStore.loadFromDB(), b50Store.loadFromDB()]);
   await historyStore.load();
@@ -393,6 +438,14 @@ onMounted(async () => {
   }
 
   syncDefaultPair();
+
+  // 缺六维的快照自动补算（老用户升级前的快照、同步后没再分析的快照）。
+  // 不补的话对比页永远只能比结构、判定恒为 unknown —— 这正是用户抱怨的点。
+  if (historyStore.entries.some(e => !e.ability)) {
+    await runBackfill(true);
+    syncDefaultPair();
+  }
+
   // tag 拉不到就静默降级：tag 列与强弱迁移会变空，但结构对比不受影响
   tagStore.load().catch(() => {});
 });
@@ -523,10 +576,20 @@ onMounted(async () => {
 .two-col > section { padding: 18px 20px; }
 .no-ability { font-size: 12px; color: var(--text-secondary); line-height: 1.7; display: flex; flex-direction: column; gap: 6px; }
 .no-ability .hint { font-size: 11px; color: var(--text-muted); }
+.no-ability .primary-btn { align-self: flex-start; }
 
 .dim-list { display: flex; flex-direction: column; gap: 11px; }
 .dim-item { display: grid; grid-template-columns: 62px minmax(0, 1fr) 64px 38px; align-items: center; gap: 10px; }
 .dim-name { font-size: 12px; color: var(--text-secondary); }
+/* 样本不足的维度：分数是中性 50，灰显避免被当成真实变化 */
+.dim-weak { opacity: 0.55; }
+.dim-warn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 12px; height: 12px; margin-left: 4px; border-radius: 50%;
+  font-size: 9px; font-style: normal; font-weight: 700;
+  color: var(--text-muted); background: rgba(107,114,128,0.16);
+  vertical-align: 1px;
+}
 .dim-track { position: relative; height: 7px; border-radius: 999px; background: rgba(74,114,255,0.08); }
 .dim-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, var(--color-primary), var(--color-accent)); transition: width 0.5s cubic-bezier(0.22,1,0.36,1); }
 .dim-mark { position: absolute; top: -3px; width: 2px; height: 13px; border-radius: 2px; background: rgba(75,85,99,0.55); }

@@ -16,11 +16,26 @@ import type { DifficultyType } from './song';
 /** 分析结果的精简投影（只保留可跨时间比较的字段） */
 export interface AbilitySnapshot {
   generatedAt: string;
+  /**
+   * 是否为「事后补算」。
+   *
+   * 只有「硬度」这一维依赖全量成绩（同定数分箱对照）。补算历史快照时，
+   * 对照池用的是**今天的**全量成绩而不是当时的 —— 其余五维只吃这份 B50，
+   * 补算结果与当时一致。UI 必须如实标注，不能把补算结果当成当时的值。
+   *
+   * 同步后立即补算的不算补算（全量成绩就是刚同步的），为 `undefined`。
+   */
+  estimated?: boolean;
   dimensions: {
     id: AbilityDimensionId;
     label: string;
     score: number;
     raw: number;
+    /**
+     * 该维样本不足（`analyzeB50` 会给中性分 50）。
+     * 补算时如果基准/tag 拉不到就会这样 —— UI 不能把它当真实分数展示。
+     */
+    insufficient?: boolean;
   }[];
   /**
    * 单 tag 相对表现（仅样本 ≥ 3）。
@@ -83,6 +98,8 @@ export interface DimensionDelta {
   from: number;
   to: number;
   delta: number;
+  /** 任一侧样本不足（分数是中性值 50），不参与「提升最多」这类结论 */
+  insufficient?: boolean;
 }
 
 /** 单个 tag 的覆盖量与相对表现迁移 */

@@ -48,7 +48,20 @@ export function useProberSync() {
       try {
         // 接口没给 rating 时用 B50 理论值兜底，避免快照里出现 0
         const rating = result.playerRating || b50Store.computedRating;
-        await historyStore.capture(b50Store.b50List, rating, 'sync');
+        const entry = await historyStore.capture(b50Store.b50List, rating, 'sync');
+
+        // 新快照默认没有六维。这里立刻补算一次，否则用户每次打完歌同步后
+        // 都得手动去 AI 复盘点「分析」，对比页才能判强弱迁移。
+        // 全量成绩就是这一刻的 → 补算值等于「当时分析」的值，不标 estimated。
+        if (entry) {
+          try {
+            const { useAnalysisStore } = await import('@/stores/useAnalysisStore');
+            const ability = await useAnalysisStore().computeAbilityFor(entry.records);
+            if (ability) await historyStore.attach(entry.fingerprint, ability);
+          } catch (e) {
+            console.warn('[B50History] 六维自动补算失败（可在成长页手动补）:', e);
+          }
+        }
       } catch (e) {
         console.warn('[B50History] 快照保存失败（不影响同步）:', e);
       }

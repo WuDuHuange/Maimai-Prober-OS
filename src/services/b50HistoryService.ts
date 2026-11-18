@@ -10,14 +10,19 @@ import type { B50Record } from '@/types/b50';
 import type { B50AnalysisResult } from '@/types/b50Analysis';
 
 /** 把一次完整分析压成可跨时间比较的指纹 */
-export function buildAbilitySnapshot(result: B50AnalysisResult): AbilitySnapshot {
+export function buildAbilitySnapshot(
+  result: B50AnalysisResult,
+  estimated = false,
+): AbilitySnapshot {
   return {
     generatedAt: result.generatedAt,
+    ...(estimated ? { estimated: true } : {}),
     dimensions: result.dimensions.map(d => ({
       id: d.id,
       label: d.label,
       score: d.score,
       raw: d.raw,
+      ...(d.insufficient ? { insufficient: true } : {}),
     })),
     tags: result.tagPerformance.map(t => ({
       tagId: t.tagId,
@@ -120,14 +125,21 @@ async function trimHistory(): Promise<void> {
 /**
  * 把能力指纹附加到「与当前 B50 内容一致」的快照上。
  * 分析跑完后调用 —— 历史快照无法重算六维，只能存当时的分析结果。
+ *
+ * ⚠️ 按 **fingerprint** 查找，而不是只看最新一条：
+ * 同步与分析是两条独立流程，分析结束时最新快照可能已经不是 B50 对应的那条
+ * （例如同步刚写入新快照、或用户手动存了一份）。只认 `last()` 会静默挂错/挂不上。
  */
 export async function attachAbilitySnapshot(
   fingerprint: string,
   ability: AbilitySnapshot,
 ): Promise<boolean> {
-  const latest = await db.b50History.orderBy('capturedAt').last();
-  if (!latest || latest.fingerprint !== fingerprint || latest.id == null) return false;
-  await db.b50History.update(latest.id, { ability });
+  const matches = await db.b50History.where('fingerprint').equals(fingerprint).toArray();
+  if (matches.length === 0) return false;
+  // 同指纹理论上只有一条（capture 会去重）；A→B→A 的极端情况下取最新那条
+  const target = matches.reduce((a, b) => (a.capturedAt >= b.capturedAt ? a : b));
+  if (target.id == null) return false;
+  await db.b50History.update(target.id, { ability });
   return true;
 }
 
